@@ -1,0 +1,27 @@
+[Nano]
+NetworkId="RX"
+GenesisBlock="b1d60c0b886b57401ef5a1daa04340e53726aa6f4d706c085706f31bbd100cee"
+
+[Nano.P2P]
+MaxPeers=75
+TrustedNodes=["168.119.169.116:17075", "168.119.169.134:17075", "168.119.169.220:17075", "168.119.169.221:17075"]
+StaticNodes=[]
+ListenAddr=":17075"
+
+[HTTP]
+ListenAddr="0.0.0.0:17076"
+Modules=["ledger"]
+
+[WS]
+ListenAddr="0.0.0.0:17078"
+Modules=["ledger"]
+
+[IPC]
+Path="gnano.ipc"
+
+[TxPool]
+MaxUncheckedCount=50000 # max size of the unchecked table
+UncheckedLifetime=1000 # in ms
+
+[Ledger]
+DataDir="./data"
