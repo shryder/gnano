@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"io"
 	"time"
+
+	"github.com/Shryder/gnano/p2p/packets"
 )
 
 type TelemetryData struct {
@@ -28,7 +30,7 @@ type TelemetryData struct {
 }
 
 func (srv *P2P) SendTelemetryAck(peer *PeerNode) error {
-	var packet PacketBody
+	var packet packets.PacketBody
 
 	packet.WriteBE(srv.NodeKeyPair.PublicKey)                                 // node_id
 	packet.WriteBE(uint64(0x93146))                                           // block count
@@ -37,7 +39,7 @@ func (srv *P2P) SendTelemetryAck(peer *PeerNode) error {
 	packet.WriteBE(uint64(0x31333))                                           // account count
 	packet.WriteBE(uint64(0))                                                 // bandwidth count
 	packet.WriteBE(uint64(4))                                                 // peer count
-	packet.WriteBE(PROTOCOL_VERSION)                                          // protocol ver
+	packet.WriteBE(packets.PROTOCOL_VERSION)                                  // protocol ver
 	packet.WriteBE((uint64(time.Now().UnixMilli()) - srv.NodeStartTimestamp)) // uptime
 	packet.WriteBE(srv.Config.GenesisBlock.ByteArray())                       // genesis block
 	packet.WriteBE(byte(32))                                                  // major ver
@@ -48,20 +50,20 @@ func (srv *P2P) SendTelemetryAck(peer *PeerNode) error {
 	packet.WriteBE(uint64(time.Now().UnixMilli()))                            // timestamp
 	packet.WriteBE(uint64(0x2552552552480000))                                // active difficulty
 
-	_, err := peer.Conn.Write(srv.makePacket(PACKET_TYPE_TELEMETRY_ACK, 0, packet.Buff.Bytes()))
+	_, err := peer.Conn.Write(srv.MakePacket(packets.PACKET_TYPE_TELEMETRY_ACK, 0, packet.Buff.Bytes()))
 	return err
 }
 
 func (srv *P2P) SendTelemetryReq(peer *PeerNode) error {
-	_, err := peer.Conn.Write(srv.makePacket(PACKET_TYPE_TELEMETRY_REQ, 0))
+	_, err := peer.Conn.Write(srv.MakePacket(packets.PACKET_TYPE_TELEMETRY_REQ, 0))
 	return err
 }
 
-func (srv *P2P) HandleTelemetryReq(reader io.Reader, header *PacketHeader, peer *PeerNode) error {
+func (srv *P2P) HandleTelemetryReq(reader io.Reader, header *packets.Header, peer *PeerNode) error {
 	return srv.SendTelemetryAck(peer)
 }
 
-func (srv *P2P) HandleTelemetryAck(reader io.Reader, header *PacketHeader, peer *PeerNode) error {
+func (srv *P2P) HandleTelemetryAck(reader io.Reader, header *packets.Header, peer *PeerNode) error {
 	// TODO: use header.Extension.TelemetrySize()
 	var packet TelemetryData
 	err := binary.Read(reader, binary.BigEndian, &packet)

@@ -9,6 +9,9 @@ import (
 	"net"
 	"strconv"
 	"sync"
+
+	"github.com/Shryder/gnano/p2p/packets"
+
 	"time"
 )
 
@@ -43,16 +46,17 @@ func (srv *P2P) ValidateConnection(conn net.Conn) error {
 	return nil
 }
 
-func (srv *P2P) HandleMessage(reader io.Reader, header PacketHeader, peer *PeerNode) error {
+func (srv *P2P) HandleMessage(reader io.Reader, header packets.Header, peer *PeerNode) error {
 	log.Println("Received message", header.MessageType, "from", peer.NodeID.ToHex())
+
 	switch header.MessageType {
-	case PACKET_TYPE_KEEPALIVE:
+	case packets.PACKET_TYPE_KEEPALIVE:
 		return srv.HandleKeepAlive(reader, &header, peer)
-	case PACKET_TYPE_CONFIRM_REQ:
+	case packets.PACKET_TYPE_CONFIRM_REQ:
 		return srv.HandleConfirmReq(reader, &header, peer)
-	case PACKET_TYPE_TELEMETRY_REQ:
+	case packets.PACKET_TYPE_TELEMETRY_REQ:
 		return srv.HandleTelemetryReq(reader, &header, peer)
-	case PACKET_TYPE_TELEMETRY_ACK:
+	case packets.PACKET_TYPE_TELEMETRY_ACK:
 		return srv.HandleTelemetryAck(reader, &header, peer)
 	}
 
@@ -90,7 +94,7 @@ func (srv *P2P) HandleConnection(conn net.Conn) {
 	}
 
 	for {
-		header, err := srv.readHeader(reader)
+		header, err := srv.ReadHeader(reader)
 		if err != nil {
 			log.Println("Error reading from peer", remoteIP, ":", err)
 

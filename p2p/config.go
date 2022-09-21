@@ -9,14 +9,14 @@ type P2PConfig struct {
 	ListenAddr   string
 }
 
-type GenesisBlock string
-
 type Config struct {
-	NetworkId    string // Try [2]byte
+	NetworkId    string
 	GenesisBlock GenesisBlock
 
 	P2P P2PConfig
 }
+
+type GenesisBlock string
 
 func (genesis *GenesisBlock) ByteArray() []byte {
 	// TODO: handle error

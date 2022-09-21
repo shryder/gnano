@@ -36,9 +36,9 @@ func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*PeerNode, e
 	cookie := make([]byte, 32)
 	rand.Read(cookie)
 
-	conn.Write(srv.makePacket(10, 0x01_00, cookie))
+	conn.Write(srv.MakePacket(10, 0x01_00, cookie))
 
-	header, err := srv.readHeader(reader)
+	header, err := srv.ReadHeader(reader)
 	if err != nil {
 		return nil, errors.New("Error reading packet header from peer: " + err.Error())
 	}
@@ -65,7 +65,7 @@ func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*PeerNode, e
 	}
 
 	signed_cookie := ed25519.Sign(*node_private_key, peer_cookie)
-	signed_handshake_response := srv.makePacket(10, 0x02_00, *node_public_key, signed_cookie)
+	signed_handshake_response := srv.MakePacket(10, 0x02_00, *node_public_key, signed_cookie)
 
 	conn.Write(signed_handshake_response)
 

@@ -6,9 +6,11 @@ import (
 	"io"
 	"log"
 	"net"
+
+	"github.com/Shryder/gnano/p2p/packets"
 )
 
-func (srv *P2P) HandleKeepAlive(reader io.Reader, header *PacketHeader, peer *PeerNode) error {
+func (srv *P2P) HandleKeepAlive(reader io.Reader, header *packets.Header, peer *PeerNode) error {
 	message := make([]byte, 8*(16+2))
 	_, err := io.ReadFull(reader, message)
 	if err != nil {
