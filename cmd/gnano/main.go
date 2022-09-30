@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"os/signal"
 
 	"github.com/Shryder/gnano/node"
 	"github.com/naoina/toml"
@@ -41,6 +42,19 @@ func main() {
 	if err != nil {
 		log.Fatal("Error initiation node instance:", err)
 	}
+
+	// Create an interruptions handler
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, os.Kill)
+
+	go func() {
+		for range c {
+			log.Println("Cleaning up before shutting down...")
+			node.Cleanup()
+			log.Println("Done cleaning up.")
+			os.Exit(0)
+		}
+	}()
 
 	node.Start()
 }

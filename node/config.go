@@ -1,6 +1,7 @@
 package node
 
 import (
+	"github.com/Shryder/gnano/database"
 	"github.com/Shryder/gnano/p2p"
 	"github.com/Shryder/gnano/rpc"
 )
@@ -14,15 +15,11 @@ type TxPoolConfig struct {
 	UncheckedLifetime uint
 }
 
-type LedgerConfig struct {
-	DataDir string
-}
-
 type Config struct {
-	Nano   p2p.Config
-	HTTP   rpc.HTTPConfig
-	WS     rpc.WSConfig
-	IPC    IPCConfig
-	TxPool TxPoolConfig
-	Ledger LedgerConfig
+	Nano     p2p.Config
+	HTTP     rpc.HTTPConfig
+	WS       rpc.WSConfig
+	IPC      IPCConfig
+	TxPool   TxPoolConfig
+	Database database.Config
 }

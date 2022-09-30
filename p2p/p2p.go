@@ -10,14 +10,16 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/Shryder/gnano/database"
 	"github.com/Shryder/gnano/p2p/packets"
 
 	"time"
 )
 
 type P2P struct {
-	Config *Config
-	Server *net.Listener
+	Config   *Config
+	Server   *net.Listener
+	Database database.DatabaseBackend
 
 	Peers      []*PeerNode
 	peersMutex sync.Mutex
@@ -96,7 +98,11 @@ func (srv *P2P) HandleConnection(conn net.Conn) {
 	for {
 		header, err := srv.ReadHeader(reader)
 		if err != nil {
-			log.Println("Error reading from peer", remoteIP, ":", err)
+			if err == io.EOF {
+				log.Println("Peer", remoteIP, "closed connection.")
+			} else {
+				log.Println("Error reading from peer", remoteIP, ":", err)
+			}
 
 			break
 		}
@@ -149,7 +155,9 @@ func (srv *P2P) Start() {
 	srv.StartListening()
 }
 
-func (srv *P2P) ValidateAndStart() error {
+func (srv *P2P) ValidateAndStart(database database.DatabaseBackend) error {
+	srv.Database = database
+
 	// Example validation
 	if srv.Config.P2P.MaxPeers == 0 {
 		return errors.New("MaxPeers cannot be 0")

@@ -1,7 +1,7 @@
-package ledger
+package database
 
 import "github.com/Shryder/gnano/types"
 
-func (ledger *Ledger) GetAccount() *types.Account {
+func (db *Database) GetAccount() *types.Account {
 	return &types.Account{}
 }

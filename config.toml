@@ -23,5 +23,6 @@ Path="gnano.ipc"
 MaxUncheckedCount=50000 # max size of the unchecked table
 UncheckedLifetime=1000 # in ms
 
-[Ledger]
-DataDir="./data"
+[Database]
+DataDir="/Users/shryder/Documents/Projects/gnano-data"
+Backend="json"
