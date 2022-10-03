@@ -39,7 +39,7 @@ func (node *Node) Start() {
 		log.Fatal("Error initializing database:", err)
 	}
 
-	err = node.p2p.ValidateAndStart(node.database.Backend)
+	err = node.p2p.ValidateAndStart(*node.database)
 	if err != nil {
 		log.Fatalln("Error starting p2p server:", err)
 	}

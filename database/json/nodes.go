@@ -16,8 +16,8 @@ func (backend *JSONBackend) AddNodeIPs(addresses []string) error {
 }
 
 func (backend *JSONBackend) GetNodeIPs() (map[string]uint, error) {
-	backend.DataMutex.Lock()
-	defer backend.DataMutex.Unlock()
+	backend.DataMutex.RLock()
+	defer backend.DataMutex.RUnlock()
 
 	return backend.Data.Nodes, nil
 }

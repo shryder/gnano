@@ -2,37 +2,50 @@ package p2p
 
 import (
 	"bufio"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"strconv"
 	"sync"
+	"syscall"
 
 	"github.com/Shryder/gnano/database"
+	"github.com/Shryder/gnano/p2p/networking"
 	"github.com/Shryder/gnano/p2p/packets"
 
 	"time"
 )
 
 type P2P struct {
-	Config   *Config
-	Server   *net.Listener
-	Database database.DatabaseBackend
+	Config        *Config
+	Server        *net.Listener
+	Database      database.Database
+	VotingEnabled bool
 
-	Peers      []*PeerNode
+	Peers      []*networking.PeerNode
 	peersMutex sync.Mutex
 
-	NodeKeyPair        *NodeKeyPair
+	NodeKeyPair        NodeKeyPair
 	NodeStartTimestamp uint64
+
+	Workers WorkersManager
 }
 
 func New(cfg *Config) *P2P {
-	return &P2P{
+	srv := &P2P{
 		Config:             cfg,
 		NodeStartTimestamp: uint64(time.Now().UnixMilli()),
+		VotingEnabled:      false,
 	}
+
+	workersManager := NewWorkerManager(srv)
+	srv.Workers = *workersManager
+
+	return srv
 }
 
 func (srv *P2P) ValidateConnection(conn net.Conn) error {
@@ -48,14 +61,16 @@ func (srv *P2P) ValidateConnection(conn net.Conn) error {
 	return nil
 }
 
-func (srv *P2P) HandleMessage(reader io.Reader, header packets.Header, peer *PeerNode) error {
-	log.Println("Received message", header.MessageType, "from", peer.NodeID.ToHex())
+func (srv *P2P) HandleMessage(reader packets.PacketReader, header packets.Header, peer *networking.PeerNode) error {
+	log.Println("Received message", header.MessageType, "from", peer.NodeID.ToNodeAddress())
 
 	switch header.MessageType {
 	case packets.PACKET_TYPE_KEEPALIVE:
 		return srv.HandleKeepAlive(reader, &header, peer)
 	case packets.PACKET_TYPE_CONFIRM_REQ:
 		return srv.HandleConfirmReq(reader, &header, peer)
+	case packets.PACKET_TYPE_CONFIRM_ACK:
+		return srv.HandleConfirmAck(reader, &header, peer)
 	case packets.PACKET_TYPE_TELEMETRY_REQ:
 		return srv.HandleTelemetryReq(reader, &header, peer)
 	case packets.PACKET_TYPE_TELEMETRY_ACK:
@@ -83,11 +98,14 @@ func (srv *P2P) HandleConnection(conn net.Conn) {
 		return
 	}
 
-	log.Println("Successfully finished handshake with", peer.NodeID.ToHex())
+	log.Println("Successfully finished handshake with", peer.NodeID.ToNodeAddress())
 
 	srv.peersMutex.Lock()
 	srv.Peers = append(srv.Peers, peer)
 	srv.peersMutex.Unlock()
+
+	// Register new peer on the components that care
+	srv.Workers.ConfirmReq.RegisterNewPeer(peer)
 
 	err = srv.SendTelemetryReq(peer)
 	if err != nil {
@@ -99,17 +117,19 @@ func (srv *P2P) HandleConnection(conn net.Conn) {
 		header, err := srv.ReadHeader(reader)
 		if err != nil {
 			if err == io.EOF {
-				log.Println("Peer", remoteIP, "closed connection.")
+				log.Println("Peer", peer.NodeID.ToNodeAddress(), remoteIP, "closed the connection.")
+			} else if errors.Is(err, syscall.ECONNRESET) {
+				log.Println("Peer", peer.NodeID.ToNodeAddress(), remoteIP, "force closed the connection.")
 			} else {
-				log.Println("Error reading from peer", remoteIP, ":", err)
+				log.Println("Error reading from peer", peer.NodeID.ToNodeAddress(), remoteIP, ":", err, "disconnecting...")
 			}
 
 			break
 		}
 
-		err = srv.HandleMessage(reader, header, peer)
+		err = srv.HandleMessage(packets.PacketReader{Buffer: reader}, header, peer)
 		if err != nil {
-			log.Println("Disconnecting. Error handling message from peer", remoteIP, ":", err)
+			log.Println("Disconnecting. Error handling message from peer", peer.NodeID.ToNodeAddress(), remoteIP, ":", err)
 			break
 		}
 	}
@@ -148,6 +168,8 @@ func (srv *P2P) ConnectToNode(ip string) {
 }
 
 func (srv *P2P) Start() {
+	srv.Workers.StartWorkers()
+
 	for _, ip := range srv.Config.P2P.TrustedNodes {
 		go srv.ConnectToNode(ip)
 	}
@@ -155,7 +177,25 @@ func (srv *P2P) Start() {
 	srv.StartListening()
 }
 
-func (srv *P2P) ValidateAndStart(database database.DatabaseBackend) error {
+func (srv *P2P) GetSubsetOfPeers() int {
+	return int(math.Sqrt(float64(len(srv.Peers))))
+}
+
+func (srv *P2P) LoadOrCreateNodeIdentity() error {
+	node_public_key, node_private_key, err := srv.Database.LoadOrCreateNodeIdentity()
+	if err != nil {
+		return err
+	}
+
+	srv.NodeKeyPair = NodeKeyPair{
+		PrivateKey: node_private_key,
+		PublicKey:  node_public_key,
+	}
+
+	return nil
+}
+
+func (srv *P2P) ValidateAndStart(database database.Database) error {
 	srv.Database = database
 
 	// Example validation
@@ -167,6 +207,12 @@ func (srv *P2P) ValidateAndStart(database database.DatabaseBackend) error {
 		return errors.New("NetworkId must be 2 bytes.")
 	}
 
+	err := srv.LoadOrCreateNodeIdentity()
+	if err != nil {
+		return err
+	}
+
+	log.Println("Public Key:", hex.EncodeToString(srv.NodeKeyPair.PublicKey))
 	log.Println("Starting p2p server")
 
 	go srv.Start()

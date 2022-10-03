@@ -5,22 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 
+	"github.com/Shryder/gnano/p2p/networking"
 	"github.com/Shryder/gnano/p2p/packets"
 )
 
-func (srv *P2P) HandleKeepAlive(reader io.Reader, header *packets.Header, peer *PeerNode) error {
+func (srv *P2P) HandleKeepAlive(reader packets.PacketReader, header *packets.Header, peer *networking.PeerNode) error {
 	message := make([]byte, 8*(16+2))
 	_, err := io.ReadFull(reader, message)
 	if err != nil {
 		return errors.New("Error reading message from peer: " + err.Error())
-	}
-
-	type SuggestedPeer struct {
-		IP   net.IP
-		Port uint16
 	}
 
 	peer_count := int(len(message) / 18)
@@ -34,8 +29,7 @@ func (srv *P2P) HandleKeepAlive(reader io.Reader, header *packets.Header, peer *
 		}
 	}
 
-	log.Println("Suggested Peers (", len(peers), "):", peers)
+	srv.Database.Backend.AddNodeIPs(peers)
 
-	srv.Database.AddNodeIPs(peers)
 	return nil
 }

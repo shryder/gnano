@@ -1,45 +1,58 @@
 package p2p
 
 import (
-	"io"
 	"log"
 
+	"github.com/Shryder/gnano/p2p/networking"
 	"github.com/Shryder/gnano/p2p/packets"
 )
 
-func (srv *P2P) HandleConfirmReqHashPairs(reader io.Reader, header *packets.Header, peer *PeerNode) error {
-	pairs := make([][]byte, header.Extension.Count())
+func (srv *P2P) HandleConfirmReqHashPairs(reader packets.PacketReader, header *packets.Header, peer *networking.PeerNode) error {
+	pairs := make([]*packets.HashPair, header.Extension.Count())
 	for i := uint(0); i < header.Extension.Count(); i++ {
-		pair := make([]byte, 64)
-		_, err := io.ReadFull(reader, pair)
+		hash, err := reader.ReadHash()
 		if err != nil {
 			return err
 		}
 
-		pairs[i] = pair
+		root, err := reader.ReadHash()
+		if err != nil {
+			return err
+		}
+
+		pairs[i] = &packets.HashPair{
+			Hash: hash,
+			Root: root,
+		}
 	}
 
-	log.Println("Hash pairs:", pairs)
+	log.Println("Received confirm_req with", len(pairs), "pairs")
+
+	srv.Workers.ConfirmReq.ProcessHashPairs(peer, pairs)
 
 	return nil
 }
 
-func (srv *P2P) HandleConfirmReqBlock(reader io.Reader, header *packets.Header, peer *PeerNode) error {
-	block_data := make([]byte, header.Extension.BlockType().Size())
-	_, err := io.ReadFull(reader, block_data)
+func (srv *P2P) HandleConfirmReqBlock(reader packets.PacketReader, header *packets.Header, peer *networking.PeerNode) error {
+	log.Println("Received a block of type", header.Extension.BlockType())
+	block, err := reader.ReadBlock(header.Extension.BlockType())
 	if err != nil {
 		return err
 	}
 
-	log.Println("Received a block of type", header.Extension.BlockType())
+	srv.Workers.ConfirmReq.ProcessBlock(peer, block)
 
 	return nil
 }
 
-func (srv *P2P) HandleConfirmReq(reader io.Reader, header *packets.Header, peer *PeerNode) error {
+func (srv *P2P) HandleConfirmReq(reader packets.PacketReader, header *packets.Header, peer *networking.PeerNode) error {
 	if header.Extension.BlockType() == packets.BLOCK_TYPE_NOT_A_BLOCK {
 		return srv.HandleConfirmReqHashPairs(reader, header, peer)
 	}
 
 	return srv.HandleConfirmReqBlock(reader, header, peer)
+}
+
+func (srv *P2P) SendConfirmReq(peer *networking.PeerNode, pairs [][]byte) error {
+	return peer.Write(srv.MakePacket(packets.PACKET_TYPE_CONFIRM_REQ, 0x0011, pairs...))
 }

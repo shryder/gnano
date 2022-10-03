@@ -5,33 +5,14 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
-	"log"
 	"net"
 
+	"github.com/Shryder/gnano/p2p/networking"
 	"github.com/Shryder/gnano/types"
 	"github.com/shryder/ed25519-blake2b"
 )
 
-func (srv *P2P) loadLocalNodeID() (*ed25519.PublicKey, *ed25519.PrivateKey, error) {
-	node_public_key, node_private_key, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return &node_public_key, &node_private_key, nil
-}
-
-func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*PeerNode, error) {
-	node_public_key, node_private_key, err := srv.loadLocalNodeID()
-	if err != nil {
-		return nil, err
-	}
-
-	srv.NodeKeyPair = &NodeKeyPair{
-		PrivateKey: node_private_key,
-		PublicKey:  node_public_key,
-	}
-
+func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*networking.PeerNode, error) {
 	// Send handshake with random cookie that the peer will have to sign
 	cookie := make([]byte, 32)
 	rand.Read(cookie)
@@ -53,8 +34,6 @@ func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*PeerNode, e
 		return nil, errors.New("Error reading data from peer: " + err.Error())
 	}
 
-	log.Println("Received header:", header)
-
 	peer_cookie := data[0:32]
 	peer_account := data[32:64]
 	peer_signature := data[64:]
@@ -64,16 +43,13 @@ func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*PeerNode, e
 		return nil, errors.New("Received invalid handshake signature from peer")
 	}
 
-	signed_cookie := ed25519.Sign(*node_private_key, peer_cookie)
-	signed_handshake_response := srv.MakePacket(10, 0x02_00, *node_public_key, signed_cookie)
+	signed_cookie := ed25519.Sign(srv.NodeKeyPair.PrivateKey, peer_cookie)
+	signed_handshake_response := srv.MakePacket(10, 0x02_00, srv.NodeKeyPair.PublicKey, signed_cookie)
 
 	conn.Write(signed_handshake_response)
 
 	var node_id types.Address
 	copy(node_id[:], peer_account)
 
-	return &PeerNode{
-		Conn:   conn,
-		NodeID: &node_id,
-	}, nil
+	return networking.NewPeerNode(conn, &node_id), nil
 }

@@ -8,16 +8,25 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/Shryder/gnano/types"
 )
 
+type DBAccount struct {
+	Frontier types.Hash     `json:"hash"`
+	Sideband types.Sideband `json:"sideband"`
+}
 type DBSchema struct {
-	Nodes map[string]uint `json:"nodes"` // ip => discovery_timestamp
+	Nodes    map[string]uint        `json:"nodes"`    // ip => discovery_timestamp
+	Blocks   map[string]types.Block `json:"blocks"`   // hash => block
+	Accounts map[string]DBAccount   `json:"accounts"` // public_key => account
 }
 
 type JSONBackend struct {
-	FilePath  string
+	FilePath string
+
 	Data      DBSchema
-	DataMutex sync.Mutex
+	DataMutex sync.RWMutex
 
 	Closed bool
 }
@@ -52,15 +61,20 @@ func Initialize(path string) (*JSONBackend, error) {
 			return nil, err
 		}
 
-		// Write empty object
-		_, err = file.Write([]byte(`{}`))
+		// Fill with default empty values
+		data = DBSchema{
+			Nodes: make(map[string]uint),
+		}
+
+		defaultData, err := json.Marshal(data)
 		if err != nil {
 			return nil, err
 		}
 
-		// Fill with default empty values
-		data = DBSchema{
-			Nodes: make(map[string]uint),
+		// Write empty object
+		_, err = file.Write(defaultData)
+		if err != nil {
+			return nil, err
 		}
 	} else {
 		if stat.IsDir() {

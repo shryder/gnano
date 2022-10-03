@@ -2,9 +2,9 @@ package p2p
 
 import (
 	"encoding/binary"
-	"io"
 	"time"
 
+	"github.com/Shryder/gnano/p2p/networking"
 	"github.com/Shryder/gnano/p2p/packets"
 )
 
@@ -29,7 +29,7 @@ type TelemetryData struct {
 	ActiveDifficulty  [8]byte
 }
 
-func (srv *P2P) SendTelemetryAck(peer *PeerNode) error {
+func (srv *P2P) SendTelemetryAck(peer *networking.PeerNode) error {
 	var packet packets.PacketBody
 
 	packet.WriteBE(srv.NodeKeyPair.PublicKey)                                 // node_id
@@ -50,20 +50,18 @@ func (srv *P2P) SendTelemetryAck(peer *PeerNode) error {
 	packet.WriteBE(uint64(time.Now().UnixMilli()))                            // timestamp
 	packet.WriteBE(uint64(0x2552552552480000))                                // active difficulty
 
-	_, err := peer.Conn.Write(srv.MakePacket(packets.PACKET_TYPE_TELEMETRY_ACK, 0, packet.Buff.Bytes()))
-	return err
+	return peer.Write(srv.MakePacket(packets.PACKET_TYPE_TELEMETRY_ACK, 0, packet.Buff.Bytes()))
 }
 
-func (srv *P2P) SendTelemetryReq(peer *PeerNode) error {
-	_, err := peer.Conn.Write(srv.MakePacket(packets.PACKET_TYPE_TELEMETRY_REQ, 0))
-	return err
+func (srv *P2P) SendTelemetryReq(peer *networking.PeerNode) error {
+	return peer.Write(srv.MakePacket(packets.PACKET_TYPE_TELEMETRY_REQ, 0))
 }
 
-func (srv *P2P) HandleTelemetryReq(reader io.Reader, header *packets.Header, peer *PeerNode) error {
+func (srv *P2P) HandleTelemetryReq(reader packets.PacketReader, header *packets.Header, peer *networking.PeerNode) error {
 	return srv.SendTelemetryAck(peer)
 }
 
-func (srv *P2P) HandleTelemetryAck(reader io.Reader, header *packets.Header, peer *PeerNode) error {
+func (srv *P2P) HandleTelemetryAck(reader packets.PacketReader, header *packets.Header, peer *networking.PeerNode) error {
 	// TODO: use header.Extension.TelemetrySize()
 	var packet TelemetryData
 	err := binary.Read(reader, binary.BigEndian, &packet)

@@ -48,12 +48,13 @@ func main() {
 	signal.Notify(c, os.Interrupt, os.Kill)
 
 	go func() {
-		for range c {
-			log.Println("Cleaning up before shutting down...")
-			node.Cleanup()
-			log.Println("Done cleaning up.")
-			os.Exit(0)
-		}
+		<-c
+
+		log.Println("Cleaning up before shutting down...")
+		node.Cleanup()
+		log.Println("Done cleaning up.")
+
+		os.Exit(0)
 	}()
 
 	node.Start()
