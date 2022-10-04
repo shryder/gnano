@@ -1,25 +1,21 @@
 package p2p
 
-import "encoding/hex"
-
 type P2PConfig struct {
-	MaxPeers     uint
-	TrustedNodes []string
-	StaticNodes  []string
-	ListenAddr   string
+	MaxLivePeers      uint
+	MaxBootstrapPeers uint
+	TrustedNodes      []string
+	StaticNodes       []string
+	ListenAddr        string
+}
+
+type ConsensusConfig struct {
+	TrustedPRs map[string]bool
 }
 
 type Config struct {
 	NetworkId    string
-	GenesisBlock GenesisBlock
+	GenesisBlock string
+	Consensus    ConsensusConfig
 
 	P2P P2PConfig
-}
-
-type GenesisBlock string
-
-func (genesis *GenesisBlock) ByteArray() []byte {
-	// TODO: handle error
-	arr, _ := hex.DecodeString(string(*genesis))
-	return arr
 }

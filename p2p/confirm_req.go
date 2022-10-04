@@ -26,9 +26,7 @@ func (srv *P2P) HandleConfirmReqHashPairs(reader packets.PacketReader, header *p
 		}
 	}
 
-	log.Println("Received confirm_req with", len(pairs), "pairs")
-
-	srv.Workers.ConfirmReq.ProcessHashPairs(peer, pairs)
+	srv.Workers.ConfirmReq.AddConfirmReqHashPairsToQueue(peer, pairs)
 
 	return nil
 }

@@ -11,13 +11,16 @@ type PeerNode struct {
 	Conn       net.Conn
 	writeMutex sync.Mutex
 
+	BootstrapConnection bool
+
 	NodeID *types.Address
 }
 
-func NewPeerNode(conn net.Conn, nodeId *types.Address) *PeerNode {
+func NewPeerNode(conn net.Conn, nodeId *types.Address, bootstrap_connection bool) *PeerNode {
 	return &PeerNode{
-		Conn:   conn,
-		NodeID: nodeId,
+		Conn:                conn,
+		NodeID:              nodeId,
+		BootstrapConnection: bootstrap_connection,
 
 		writeMutex: sync.Mutex{},
 	}

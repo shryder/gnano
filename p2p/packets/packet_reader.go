@@ -25,6 +25,19 @@ func (reader *PacketReader) ReadAddress() (*types.Address, error) {
 	return &address, nil
 }
 
+func (reader *PacketReader) ReadTimestampAndVoteDuration() (*TimestampAndVoteDuration, error) {
+	tvd_bytes := make([]byte, 8)
+	_, err := io.ReadFull(reader, tvd_bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	var tvd TimestampAndVoteDuration
+	copy(tvd[:], tvd_bytes)
+
+	return &tvd, nil
+}
+
 func (reader *PacketReader) ReadSignature() (*types.Signature, error) {
 	signature_bytes := make([]byte, 64)
 	_, err := io.ReadFull(reader, signature_bytes)

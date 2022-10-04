@@ -2,8 +2,12 @@
 NetworkId="RX"
 GenesisBlock="b1d60c0b886b57401ef5a1daa04340e53726aa6f4d706c085706f31bbd100cee"
 
+[Nano.Consensus]
+TrustedPRs= { ffafc4458b29c753dfe792b631e1979b08204bb522c27d1c6949194069a1934f = true, d5023adefd95f056e22073c62c481e46cddea80bf14278adf1d37698757bd032 = true, e9a92f787469b9504a670f7d63d91bc17456b710e7dfead81df7171e330c35ca = true, e72db7a75541053999b96b339e9060fca028c4e1097d0de18976de1497787ca5 = true}
+
 [Nano.P2P]
-MaxPeers=75
+MaxLivePeers=75
+MaxBootstrapPeers=5
 TrustedNodes=["168.119.169.116:17075", "168.119.169.134:17075", "168.119.169.220:17075", "168.119.169.221:17075"]
 StaticNodes=[]
 ListenAddr=":17075"

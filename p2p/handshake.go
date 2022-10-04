@@ -51,5 +51,5 @@ func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*networking.
 	var node_id types.Address
 	copy(node_id[:], peer_account)
 
-	return networking.NewPeerNode(conn, &node_id), nil
+	return networking.NewPeerNode(conn, &node_id, false), nil
 }

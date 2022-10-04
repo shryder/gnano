@@ -34,6 +34,10 @@ func (extension *HeaderExtension) TelemetrySize() uint {
 	return uint(extension.Uint() & 0x3ff)
 }
 
+func (extension *HeaderExtension) ExtendedParamsPresent() bool {
+	return uint(extension.Uint()&0x0001) == 1
+}
+
 func (extension *HeaderExtension) IsQuery() bool {
 	return extension.Uint()&1 == 1
 }

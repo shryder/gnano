@@ -32,7 +32,7 @@ func (backend *JSONBackend) StoreAccount(account *types.Account) error {
 	defer backend.DataMutex.Unlock()
 
 	backend.Data.Accounts[account.Frontier.Account.ToHexString()] = DBAccount{
-		Frontier: *account.Frontier.Hash(),
+		Frontier: *account.Frontier.Hash,
 		Sideband: account.Sideband,
 	}
 

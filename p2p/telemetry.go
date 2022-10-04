@@ -41,7 +41,7 @@ func (srv *P2P) SendTelemetryAck(peer *networking.PeerNode) error {
 	packet.WriteBE(uint64(4))                                                 // peer count
 	packet.WriteBE(packets.PROTOCOL_VERSION)                                  // protocol ver
 	packet.WriteBE((uint64(time.Now().UnixMilli()) - srv.NodeStartTimestamp)) // uptime
-	packet.WriteBE(srv.Config.GenesisBlock.ByteArray())                       // genesis block
+	packet.WriteBE(srv.GenesisBlock[:])                                       // genesis block
 	packet.WriteBE(byte(32))                                                  // major ver
 	packet.WriteBE(byte(3))                                                   // minor ver
 	packet.WriteBE(byte(0))                                                   // patch ver

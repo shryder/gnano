@@ -11,6 +11,7 @@ import (
 	"github.com/shryder/ed25519-blake2b"
 
 	json_backend "github.com/Shryder/gnano/database/json"
+	"github.com/Shryder/gnano/types"
 )
 
 type DatabaseBackend interface {
@@ -18,6 +19,10 @@ type DatabaseBackend interface {
 
 	AddNodeIPs(address []string) error
 	GetNodeIPs() (map[string]uint, error)
+
+	GetVotingWeight(address *types.Address) types.Amount
+
+	CementBlock(block *types.Block) error
 
 	Cleanup() error
 }

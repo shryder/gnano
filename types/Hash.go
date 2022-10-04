@@ -29,3 +29,15 @@ func (hash *Hash) UnmarshalJSON(data []byte) error {
 
 	return nil
 }
+
+func StringToHash(hash_str string) (*Hash, error) {
+	hash_slice, err := hex.DecodeString(hash_str)
+	if err != nil {
+		return nil, err
+	}
+
+	hash := new(Hash)
+	copy(hash[:], hash_slice)
+
+	return hash, nil
+}

@@ -2,6 +2,8 @@ package packets
 
 import (
 	"github.com/Shryder/gnano/types"
+	"github.com/Shryder/gnano/utils"
+	"lukechampine.com/uint128"
 )
 
 type SendBlock struct {
@@ -57,11 +59,14 @@ func ParseSendBlock(data []byte) *types.Block {
 
 	copy(previous[:], data[0:32])
 	copy(destination[:], data[32:64])
-	copy(balance[:], data[64:80])
+	balance = types.Amount(uint128.FromBytes(data[64:80]))
 	copy(signature[:], data[80:144])
 	copy(work[:], data[144:152])
 
+	hash := utils.Blake2BHash(previous[:], destination[:], data[64:80])
+
 	return &types.Block{
+		Hash:      hash,
 		Previous:  &previous,
 		Link:      &destination,
 		Balance:   &balance,
@@ -84,7 +89,10 @@ func ParseReceiveBlock(data []byte) *types.Block {
 	copy(source[:], data[32:64])
 	copy(signature[:], data[64:128])
 
+	hash := utils.Blake2BHash(previous[:], source[:])
+
 	return &types.Block{
+		Hash:      hash,
 		Previous:  &previous,
 		Link:      &source,
 		Signature: &signature,
@@ -112,7 +120,10 @@ func ParseOpenBlock(data []byte) *types.Block {
 	copy(signature[:], data[96:160])
 	copy(work[:], data[160:168])
 
+	hash := utils.Blake2BHash(source[:], representative[:], account[:])
+
 	return &types.Block{
+		Hash:           hash,
 		Account:        &account,
 		Previous:       &previous,
 		Link:           &source,
@@ -137,7 +148,10 @@ func ParseChangeBlock(data []byte) *types.Block {
 	copy(signature[:], data[64:128])
 	copy(work[:], data[128:136])
 
+	hash := utils.Blake2BHash(previous[:], representative[:])
+
 	return &types.Block{
+		Hash:           hash,
 		Previous:       &previous,
 		Signature:      &signature,
 		Representative: &representative,
@@ -161,12 +175,23 @@ func ParseStateBlock(data []byte) *types.Block {
 	copy(account[:], data[0:32])
 	copy(previous[:], data[32:64])
 	copy(representative[:], data[64:96])
-	copy(balance[:], data[64:112])
+	balance = types.Amount(uint128.FromBytes(data[96:112]))
 	copy(link[:], data[112:144])
 	copy(signature[:], data[144:208])
 	copy(work[:], data[208:216])
 
+	state_block_header := append(make([]byte, 31), 0x06)
+	hash := utils.Blake2BHash(
+		state_block_header,
+		account[:],
+		previous[:],
+		representative[:],
+		data[96:112],
+		link[:],
+	)
+
 	return &types.Block{
+		Hash:           hash,
 		Account:        &account,
 		Previous:       &previous,
 		Representative: &representative,

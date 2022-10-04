@@ -27,12 +27,10 @@ type ConfirmReqWorker struct {
 	HashPairsQueue map[*networking.PeerNode]chan []*packets.HashPair
 	BlocksQueue    map[*networking.PeerNode]chan *types.Block
 	Mutex          sync.Mutex
-
-	LocalVotes map[VoteKey]*packets.VoteByHashes
 }
 
 func (worker *ConfirmReqWorker) HandleHashPairRequest(peer *networking.PeerNode, hashPairs []*packets.HashPair) {
-	var cached_votes []*packets.VoteByHashes
+	// var cached_votes []*packets.VoteByHashes
 	// var initial_vote_required []*packets.HashPair
 	// var final_vote_required []*packets.HashPair
 	var unknown_blocks [][]byte
@@ -40,33 +38,33 @@ func (worker *ConfirmReqWorker) HandleHashPairRequest(peer *networking.PeerNode,
 	log.Println("Processing", len(hashPairs), "hashpair requests from", peer.NodeID.ToNodeAddress())
 
 	for _, hashPair := range hashPairs {
-		vote, found := worker.LocalVotes[VoteKey{Root: *hashPair.Root, Hash: *hashPair.Hash}]
-		if found {
-			cached_votes = append(cached_votes, vote)
-			continue
-		}
-
-		pair := append((*hashPair.Hash)[:], (*hashPair.Root)[:]...)
-		unknown_blocks = append(unknown_blocks, pair)
+		unknown_blocks = append(unknown_blocks, hashPair.ToBytes())
 	}
 
 	log.Println("Finished processing", len(hashPairs), "hashpair requests from", peer.NodeID.ToNodeAddress())
 
 	// Ask other nodes to confirm_req these new unknown blocks
+	// TODO: add the unkown block to a queue to prevent DDoS & duplicate requests
 	if len(unknown_blocks) > 0 {
-		subset_amount := worker.P2PServer.GetSubsetOfPeers()
-		log.Println("Peer", peer.NodeID.ToNodeAddress(), "requested votes on", len(unknown_blocks), "blocks that we are not aware of. Requesting vote from other peers.")
+		subset_amount := worker.P2PServer.PeersManager.GetSubsetOfLivePeers()
+		log.Println("Peer", peer.NodeID.ToNodeAddress(), "requested votes on", len(unknown_blocks), "blocks that we are not aware of. Requesting votes from", subset_amount, "other peers.")
 
-		// TODO: add the unkown block to a queue to prevent DDoS & duplicate requests
-		for _, other_peer := range worker.P2PServer.Peers[:subset_amount] {
+		// Ask other peers about these unknown blocks
+		for _, other_peer := range worker.P2PServer.PeersManager.Peers {
 			if other_peer == peer {
 				continue
+			}
+
+			if subset_amount == 0 {
+				break
 			}
 
 			err := worker.P2PServer.SendConfirmReq(other_peer, unknown_blocks)
 			if err != nil {
 				log.Println("Error sending confirm_req to node", err)
 			}
+
+			subset_amount--
 		}
 	}
 }
@@ -75,8 +73,9 @@ func (worker *ConfirmReqWorker) HandleBlockRequest(node *networking.PeerNode, bl
 	log.Println("Received confirm_req with block", block.Account.ToNanoAddress(), "from", node.NodeID.ToNodeAddress())
 }
 
-func (worker *ConfirmReqWorker) RequestsQueueProcessor() {
+func (worker *ConfirmReqWorker) StartQueueProcessor() {
 	for {
+		worker.Mutex.Lock()
 		// If a key is in HashPairsQueue then it should be in BlocksQueue as well
 		for peer := range worker.HashPairsQueue {
 			select {
@@ -90,16 +89,17 @@ func (worker *ConfirmReqWorker) RequestsQueueProcessor() {
 				continue
 			}
 		}
+		worker.Mutex.Unlock()
 
 		time.Sleep(time.Millisecond * 250)
 	}
 }
 
 func (worker *ConfirmReqWorker) Start() {
-	go worker.RequestsQueueProcessor()
+	go worker.StartQueueProcessor()
 }
 
-func (worker *ConfirmReqWorker) ProcessHashPairs(peer *networking.PeerNode, pairs []*packets.HashPair) {
+func (worker *ConfirmReqWorker) AddConfirmReqHashPairsToQueue(peer *networking.PeerNode, pairs []*packets.HashPair) {
 	worker.HashPairsQueue[peer] <- pairs
 }
 
@@ -114,12 +114,18 @@ func (worker *ConfirmReqWorker) RegisterNewPeer(peer *networking.PeerNode) {
 	worker.Mutex.Unlock()
 }
 
+func (worker *ConfirmReqWorker) UnregisterNewPeer(peer *networking.PeerNode) {
+	worker.Mutex.Lock()
+	delete(worker.HashPairsQueue, peer)
+	delete(worker.BlocksQueue, peer)
+	worker.Mutex.Unlock()
+}
+
 func NewConfirmReqWorker(srv *P2P) *ConfirmReqWorker {
 	return &ConfirmReqWorker{
-		P2PServer:  srv,
-		LocalVotes: make(map[VoteKey]*packets.VoteByHashes),
+		P2PServer: srv,
 
-		HashPairsQueue: make(map[*networking.PeerNode]chan []*packets.HashPair), // 1024 is queue size
-		BlocksQueue:    make(map[*networking.PeerNode]chan *types.Block),        // 1024 queue size
+		HashPairsQueue: make(map[*networking.PeerNode]chan []*packets.HashPair, 1024),
+		BlocksQueue:    make(map[*networking.PeerNode]chan *types.Block, 1024),
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/Shryder/gnano/p2p/networking"
 	"github.com/Shryder/gnano/p2p/packets"
 	"github.com/Shryder/gnano/types"
-	"github.com/shryder/ed25519-blake2b"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -17,8 +16,8 @@ func (srv *P2P) SendConfirmAck(reader packets.PacketReader, header *packets.Head
 }
 
 func calculateVoteHash(
-	timestamp_and_vote_duration []byte,
-	hashes *[][]byte,
+	timestamp_and_vote_duration packets.TimestampAndVoteDuration,
+	hashes *[]*types.Hash,
 ) ([]byte, error) {
 	vote_hash, err := blake2b.New(32, nil)
 	if err != nil {
@@ -27,10 +26,10 @@ func calculateVoteHash(
 
 	vote_hash.Write([]byte("vote "))
 	for _, hash := range *hashes {
-		vote_hash.Write(hash)
+		vote_hash.Write((*hash)[:])
 	}
 
-	vote_hash.Write(timestamp_and_vote_duration)
+	vote_hash.Write(timestamp_and_vote_duration[:])
 
 	return vote_hash.Sum(nil), nil
 }
@@ -41,9 +40,9 @@ func (srv *P2P) handleConfirmAckHashes(
 	peer *networking.PeerNode,
 	vote_address *types.Address,
 	signature *types.Signature,
-	timestamp_and_vote_duration []byte,
+	timestamp_and_vote_duration *packets.TimestampAndVoteDuration,
 ) error {
-	hashes := make([][]byte, header.Extension.Count())
+	hashes := make([]*types.Hash, header.Extension.Count())
 
 	for i := 0; i < len(hashes); i++ {
 		hash, err := reader.ReadHash()
@@ -51,21 +50,15 @@ func (srv *P2P) handleConfirmAckHashes(
 			return fmt.Errorf("Encountered an error while reading confirm_ack hashes: %w", err)
 		}
 
-		hashes[i] = hash[:]
+		hashes[i] = hash
 	}
 
-	log.Println(peer.NodeID.ToNodeAddress(), "sent us confirmation for", len(hashes), "blocks")
-
-	// Validate signature
-	vote_hash, err := calculateVoteHash(timestamp_and_vote_duration, &hashes)
-	if err != nil {
-		return fmt.Errorf("Error calculating vote hash: %w", err)
-	}
-
-	is_vote_signature_valid := ed25519.Verify(vote_address.ToPublicKey(), vote_hash, signature[:])
-	if !is_vote_signature_valid {
-		return fmt.Errorf("Received invalid confirm_ack signature from %s %s for %d blocks", peer.NodeID.ToNodeAddress(), peer.NodeID.ToNanoAddress(), len(hashes))
-	}
+	srv.Workers.ConfirmAck.AddConfirmAckToQueue(peer, &packets.ConfirmAckByHashes{
+		Account:                  vote_address,
+		Signature:                signature,
+		TimestampAndVoteDuration: timestamp_and_vote_duration,
+		Hashes:                   &hashes,
+	})
 
 	return nil
 }
@@ -82,14 +75,12 @@ func (srv *P2P) handleConfirmAckBlock(reader packets.PacketReader, header *packe
 		return err
 	}
 
-	log.Println("Discarded confirm_ack by block packet from", peer.NodeID.ToNodeAddress(), "voter:", vote_address.ToNanoAddress())
+	log.Println("Discarded confirm_ack_by_block packet from", peer.NodeID.ToNodeAddress(), peer.Conn.RemoteAddr().String(), "voter:", vote_address.ToNanoAddress())
 
 	return nil
 }
 
 func (srv *P2P) HandleConfirmAck(reader packets.PacketReader, header *packets.Header, peer *networking.PeerNode) error {
-	log.Println("Received confirm ack from", peer.NodeID.ToNodeAddress())
-
 	account, err := reader.ReadAddress()
 	if err != nil {
 		return err
@@ -100,8 +91,7 @@ func (srv *P2P) HandleConfirmAck(reader packets.PacketReader, header *packets.He
 		return err
 	}
 
-	timestamp_and_vote_duration := make([]byte, 8)
-	_, err = io.ReadFull(reader, timestamp_and_vote_duration)
+	timestamp_and_vote_duration, err := reader.ReadTimestampAndVoteDuration()
 	if err != nil {
 		return err
 	}
