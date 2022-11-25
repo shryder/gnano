@@ -8,6 +8,7 @@ import (
 	"net"
 
 	"github.com/Shryder/gnano/p2p/networking"
+	"github.com/Shryder/gnano/p2p/packets"
 	"github.com/Shryder/gnano/types"
 	"github.com/shryder/ed25519-blake2b"
 )
@@ -17,7 +18,11 @@ func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*networking.
 	cookie := make([]byte, 32)
 	rand.Read(cookie)
 
-	conn.Write(srv.MakePacket(10, 0x01_00, cookie))
+	var extension packets.HeaderExtension
+	extension.SetQuery(true)
+
+	handshake_cookie_header, handshake_body := srv.MakePacket(packets.PACKET_TYPE_NODE_ID_HANDSHAKE, extension, cookie)
+	conn.Write(append(handshake_cookie_header.Serialize(), handshake_body...))
 
 	header, err := srv.ReadHeader(reader)
 	if err != nil {
@@ -43,13 +48,19 @@ func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*networking.
 		return nil, errors.New("Received invalid handshake signature from peer")
 	}
 
-	signed_cookie := ed25519.Sign(srv.NodeKeyPair.PrivateKey, peer_cookie)
-	signed_handshake_response := srv.MakePacket(10, 0x02_00, srv.NodeKeyPair.PublicKey, signed_cookie)
-
-	conn.Write(signed_handshake_response)
-
 	var node_id types.Address
 	copy(node_id[:], peer_account)
 
-	return networking.NewPeerNode(conn, &node_id, false), nil
+	peer := networking.NewPeerNode(conn, &node_id, false)
+
+	extension = packets.HeaderExtension{}
+	extension.SetResponse(true)
+
+	signed_cookie := ed25519.Sign(srv.NodeKeyPair.PrivateKey, peer_cookie)
+	err = srv.WriteToPeer(peer, packets.PACKET_TYPE_NODE_ID_HANDSHAKE, extension, srv.NodeKeyPair.PublicKey, signed_cookie)
+	if err != nil {
+		return nil, err
+	}
+
+	return peer, nil
 }

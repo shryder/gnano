@@ -8,6 +8,7 @@ import (
 )
 
 type PeerNode struct {
+	Alias      string
 	Conn       net.Conn
 	writeMutex sync.Mutex
 
@@ -17,7 +18,15 @@ type PeerNode struct {
 }
 
 func NewPeerNode(conn net.Conn, nodeId *types.Address, bootstrap_connection bool) *PeerNode {
+	alias := conn.RemoteAddr().String()
+	if nodeId != nil {
+		alias += "(" + nodeId.ToNodeAddress() + ")"
+	} else {
+		alias += "(bootstrap)"
+	}
+
 	return &PeerNode{
+		Alias:               alias,
 		Conn:                conn,
 		NodeID:              nodeId,
 		BootstrapConnection: bootstrap_connection,

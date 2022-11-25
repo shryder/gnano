@@ -19,6 +19,9 @@ type PeerConfirmAcks struct {
 type ConfirmAckWorker struct {
 	P2PServer *P2P
 
+	ConfirmedButWaitingForBlockBody      map[types.Hash]bool // We tried to cement but we did not have block body, contiously check if we received the body yet
+	ConfirmedButWaitingForBlockBodyMutex sync.Mutex
+
 	HashPairsQueue      map[*networking.PeerNode]chan *packets.ConfirmAckByHashes
 	HashPairsQueueMutex sync.Mutex
 
@@ -30,13 +33,29 @@ func (worker *ConfirmAckWorker) IsTrustedPR(address types.Address) bool {
 	return found && is_trusted
 }
 
-func (worker *ConfirmAckWorker) CementBlock(hash types.Hash) {
-	// log.Println("Cementing block", hash.ToHexString())
+// Cement block if we have contents
+func (worker *ConfirmAckWorker) TryCementBlock(hash types.Hash) bool {
+	unchecked_block := worker.P2PServer.UncheckedBlocksManager.Get(&hash)
+	if unchecked_block == nil {
+		log.Println("Couldn't cement block", hash.ToHexString(), "because we don't have its body")
+
+		worker.ConfirmedButWaitingForBlockBodyMutex.Lock()
+		worker.ConfirmedButWaitingForBlockBody[hash] = true
+		worker.ConfirmedButWaitingForBlockBodyMutex.Unlock()
+
+		return false
+	}
+
+	log.Println("Cementing block", hash.ToHexString())
+
+	worker.P2PServer.UncheckedBlocksManager.Remove(unchecked_block.Hash)
+	worker.P2PServer.Database.Backend.PutBlock(unchecked_block)
+	return true
 }
 
 func (worker *ConfirmAckWorker) HandleConfirmAck(peer *networking.PeerNode, vote *packets.ConfirmAckByHashes) {
 	// Validate signature
-	vote_hash, err := calculateVoteHash(*vote.TimestampAndVoteDuration, vote.Hashes)
+	vote_hash, err := calculateVoteHashPtrs(*vote.TimestampAndVoteDuration, vote.Hashes)
 	if err != nil {
 		log.Println("Error calculating vote hash:", err)
 
@@ -50,54 +69,55 @@ func (worker *ConfirmAckWorker) HandleConfirmAck(peer *networking.PeerNode, vote
 		return
 	}
 
-	// Current codebase does not care about voting nodes yet, so we will only process final votes. Maybe we should rebroadcast these non-final votes tho
-	if !vote.TimestampAndVoteDuration.IsFinalVote() {
+	if !worker.P2PServer.VotingEnabled && !vote.TimestampAndVoteDuration.IsFinalVote() {
+		log.Println("Received confirm_ack that we are ignoring:", vote.TimestampAndVoteDuration.IsFinalVote())
 		return
 	}
 
 	for _, hash := range *vote.Hashes {
+		log.Println("Received confirm_ack votes from", peer.NodeID.ToNodeAddress(), "on", hash.ToHexString())
+
 		// Instantly cement block if it was a final vote from a trusted PR
 		if worker.IsTrustedPR(*vote.Account) {
-			worker.CementBlock(*hash)
+			worker.TryCementBlock(*hash)
 			continue
 		}
 
 		// Add vote to list of votes that we already received for this block
-		_, found := worker.BlockVotes[*hash]
-		if !found {
-			// First vote on a block hash
-			worker.BlockVotes[*hash] = make(map[types.Address]types.Amount)
-		}
+		// _, found := worker.BlockVotes[*hash]
+		// if !found {
+		// 	// First vote on a block hash
+		// 	worker.BlockVotes[*hash] = make(map[types.Address]types.Amount)
+		// }
 
-		voting_weight := worker.P2PServer.Database.Backend.GetVotingWeight(vote.Account)
-		if voting_weight.IsZero() {
-			continue
-		}
+		// voting_weight := worker.P2PServer.Database.Backend.GetVotingWeight(vote.Account)
+		// if voting_weight.IsZero() {
+		// 	continue
+		// }
 
-		_, found = worker.BlockVotes[*hash][*vote.Account]
-		if found {
-			continue
-		}
+		// _, found = worker.BlockVotes[*hash][*vote.Account]
+		// if found {
+		// 	continue
+		// }
 
-		// Add this vote's weight
-		worker.BlockVotes[*hash][*vote.Account] = voting_weight
+		// // Add this vote's weight
+		// worker.BlockVotes[*hash][*vote.Account] = voting_weight
 
-		// Can be cached instead of re-calculated everytime
-		total_voting_weight := types.Amount{}
-		for _, i := range worker.BlockVotes[*hash] {
-			total_voting_weight = i.Add(total_voting_weight)
-		}
+		// // Can be cached instead of re-calculated everytime
+		// total_voting_weight := types.Amount{}
+		// for _, i := range worker.BlockVotes[*hash] {
+		// 	total_voting_weight = i.Add(total_voting_weight)
+		// }
 
-		minimum_weight_to_cement, _ := types.AmountFromString("42000000000000000000000000000000000000") // 42,000,000 XNO
-		if total_voting_weight.Cmp(minimum_weight_to_cement) == 1 {
-			worker.CementBlock(*hash)
-		}
+		// minimum_weight_to_cement, _ := types.AmountFromString("42000000000000000000000000000000000000") // 42,000,000 XNO
+		// if total_voting_weight.Cmp(minimum_weight_to_cement) == 1 {
+		// 	worker.TryCementBlock(*hash)
+		// }
 	}
 }
 
 func (worker *ConfirmAckWorker) StartQueueProcessor() {
 	for {
-		// If a key is in HashPairsQueue then it should be in BlocksQueue as well
 		for peer := range worker.HashPairsQueue {
 			select {
 			case ack := <-worker.HashPairsQueue[peer]:
@@ -112,8 +132,24 @@ func (worker *ConfirmAckWorker) StartQueueProcessor() {
 	}
 }
 
+func (worker *ConfirmAckWorker) WaitForBlockBodyBeforeCementing() {
+	for {
+		worker.ConfirmedButWaitingForBlockBodyMutex.Lock()
+		for hash := range worker.ConfirmedButWaitingForBlockBody {
+			cemented := worker.TryCementBlock(hash)
+			if cemented {
+				delete(worker.ConfirmedButWaitingForBlockBody, hash)
+			}
+		}
+		worker.ConfirmedButWaitingForBlockBodyMutex.Unlock()
+
+		time.Sleep(time.Millisecond * 250)
+	}
+}
+
 func (worker *ConfirmAckWorker) Start() {
 	go worker.StartQueueProcessor()
+	go worker.WaitForBlockBodyBeforeCementing()
 }
 
 func (worker *ConfirmAckWorker) AddConfirmAckToQueue(peer *networking.PeerNode, ack *packets.ConfirmAckByHashes) {
@@ -136,7 +172,12 @@ func NewConfirmAckWorker(srv *P2P) *ConfirmAckWorker {
 	return &ConfirmAckWorker{
 		P2PServer: srv,
 
-		HashPairsQueue: make(map[*networking.PeerNode]chan *packets.ConfirmAckByHashes, 1024),
-		BlockVotes:     make(map[types.Hash]map[types.Address]types.Amount),
+		ConfirmedButWaitingForBlockBody:      make(map[types.Hash]bool),
+		ConfirmedButWaitingForBlockBodyMutex: sync.Mutex{},
+
+		HashPairsQueue:      make(map[*networking.PeerNode]chan *packets.ConfirmAckByHashes, 1024),
+		HashPairsQueueMutex: sync.Mutex{},
+
+		BlockVotes: make(map[types.Hash]map[types.Address]types.Amount),
 	}
 }

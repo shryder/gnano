@@ -1,6 +1,12 @@
 package p2p
 
+type P2PLogsConfig struct {
+	PeersManager     bool
+	ConfirmReqWorker bool
+}
+
 type P2PConfig struct {
+	Logs              P2PLogsConfig
 	MaxLivePeers      uint
 	MaxBootstrapPeers uint
 	TrustedNodes      []string

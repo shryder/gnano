@@ -3,7 +3,6 @@ package packets
 import (
 	"github.com/Shryder/gnano/types"
 	"github.com/Shryder/gnano/utils"
-	"lukechampine.com/uint128"
 )
 
 type SendBlock struct {
@@ -59,7 +58,7 @@ func ParseSendBlock(data []byte) *types.Block {
 
 	copy(previous[:], data[0:32])
 	copy(destination[:], data[32:64])
-	balance = types.Amount(uint128.FromBytes(data[64:80]))
+	balance = types.AmountFromBytesBE(data[64:80])
 	copy(signature[:], data[80:144])
 	copy(work[:], data[144:152])
 
@@ -92,6 +91,7 @@ func ParseReceiveBlock(data []byte) *types.Block {
 	hash := utils.Blake2BHash(previous[:], source[:])
 
 	return &types.Block{
+		Type:      "receive",
 		Hash:      hash,
 		Previous:  &previous,
 		Link:      &source,
@@ -123,6 +123,7 @@ func ParseOpenBlock(data []byte) *types.Block {
 	hash := utils.Blake2BHash(source[:], representative[:], account[:])
 
 	return &types.Block{
+		Type:           "open",
 		Hash:           hash,
 		Account:        &account,
 		Previous:       &previous,
@@ -151,6 +152,7 @@ func ParseChangeBlock(data []byte) *types.Block {
 	hash := utils.Blake2BHash(previous[:], representative[:])
 
 	return &types.Block{
+		Type:           "change",
 		Hash:           hash,
 		Previous:       &previous,
 		Signature:      &signature,
@@ -175,7 +177,7 @@ func ParseStateBlock(data []byte) *types.Block {
 	copy(account[:], data[0:32])
 	copy(previous[:], data[32:64])
 	copy(representative[:], data[64:96])
-	balance = types.Amount(uint128.FromBytes(data[96:112]))
+	balance = types.AmountFromBytesBE(data[96:112])
 	copy(link[:], data[112:144])
 	copy(signature[:], data[144:208])
 	copy(work[:], data[208:216])
@@ -191,6 +193,7 @@ func ParseStateBlock(data []byte) *types.Block {
 	)
 
 	return &types.Block{
+		Type:           "state",
 		Hash:           hash,
 		Account:        &account,
 		Previous:       &previous,

@@ -1,8 +1,10 @@
 package types
 
 import (
+	"bytes"
 	"encoding/hex"
 	"math/big"
+	"strings"
 )
 
 type Hash [32]byte
@@ -16,11 +18,15 @@ func (hash *Hash) ToHexString() string {
 }
 
 func (hash *Hash) MarshalJSON() ([]byte, error) {
-	return []byte(hash.ToHexString()), nil
+	return []byte(`"` + hash.ToHexString() + `"`), nil
+}
+
+func (hash *Hash) Cmp(other_hash *Hash) int {
+	return bytes.Compare(hash[:], other_hash[:])
 }
 
 func (hash *Hash) UnmarshalJSON(data []byte) error {
-	hash_slice, err := hex.DecodeString(string(data))
+	hash_slice, err := hex.DecodeString(strings.Trim(string(data), `"`))
 	if err != nil {
 		return err
 	}

@@ -52,5 +52,11 @@ func (srv *P2P) HandleConfirmReq(reader packets.PacketReader, header *packets.He
 }
 
 func (srv *P2P) SendConfirmReq(peer *networking.PeerNode, pairs [][]byte) error {
-	return peer.Write(srv.MakePacket(packets.PACKET_TYPE_CONFIRM_REQ, 0x0011, pairs...))
+	log.Println("sending confirm_req on", HashPairToString(pairs), "to", peer.Alias, "count:", len(pairs))
+
+	var extension packets.HeaderExtension
+	extension.SetBlockType(packets.BLOCK_TYPE_NOT_A_BLOCK)
+	extension.SetCount(uint16(len(pairs)))
+
+	return srv.WriteToPeer(peer, packets.PACKET_TYPE_CONFIRM_REQ, extension, pairs...)
 }

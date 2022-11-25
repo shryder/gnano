@@ -4,6 +4,7 @@ import (
 	"encoding/base32"
 	"encoding/hex"
 	"errors"
+	"strings"
 
 	"github.com/shryder/ed25519-blake2b"
 	"golang.org/x/crypto/blake2b"
@@ -56,15 +57,20 @@ func (address *Address) ToPublicKey() ed25519.PublicKey {
 }
 
 func (address *Address) MarshalJSON() ([]byte, error) {
-	return []byte(address.ToHexString()), nil
+	return []byte(`"` + address.ToHexString() + `"`), nil
 }
 
 func (address *Address) UnmarshalJSON(data []byte) error {
-	if len(data) != 32 {
+	address_slice, err := hex.DecodeString(strings.Trim(string(data), `"`))
+	if err != nil {
+		return err
+	}
+
+	if len(address_slice) != 32 {
 		return errors.New("String representation of an address must be 32 bytes")
 	}
 
-	copy(address[:], data[:])
+	copy(address[:], address_slice)
 
 	return nil
 }
@@ -115,4 +121,16 @@ func DecodeNanoAddress(nano_address string) (addy *Address, err error) {
 	copy(addy[:], key_bytes)
 
 	return addy, nil
+}
+
+func StringPublicKeyToAddress(public_key_str string) (*Address, error) {
+	public_key_slice, err := hex.DecodeString(public_key_str)
+	if err != nil {
+		return nil, err
+	}
+
+	address := new(Address)
+	copy(address[:], public_key_slice)
+
+	return address, nil
 }

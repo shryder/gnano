@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -8,14 +9,61 @@ import (
 	"github.com/Shryder/gnano/p2p/networking"
 	"github.com/Shryder/gnano/p2p/packets"
 	"github.com/Shryder/gnano/types"
+	"github.com/shryder/ed25519-blake2b"
 	"golang.org/x/crypto/blake2b"
 )
 
-func (srv *P2P) SendConfirmAck(reader packets.PacketReader, header *packets.Header, peer *networking.PeerNode) error {
-	return nil
+func (srv *P2P) SendConfirmAck(peer *networking.PeerNode, hashPairs []*packets.HashPair) error {
+	pairs_bytes := make([][]byte, len(hashPairs))
+	all_hashes := make([]types.Hash, len(hashPairs)*2)
+	for i, pair := range hashPairs {
+		pairs_bytes[i] = append(pair.Hash[:], pair.Root[:]...)
+		all_hashes = append(all_hashes, *pair.Hash, *pair.Root)
+	}
+
+	if len(all_hashes) > 16 {
+		return errors.New("Can't confirm_ack more than 16 hash pairs")
+	}
+
+	log.Println("sending confirm_ack on", HashPairToString(pairs_bytes), "to", peer.Alias)
+
+	timestamp_and_vote_duration := packets.TimestampAndVoteDuration{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	vote_hash, err := calculateVoteHash(timestamp_and_vote_duration, &all_hashes)
+	if err != nil {
+		log.Println("Error calculating vote hash:", err)
+
+		return err
+	}
+
+	vote_signature := ed25519.Sign(srv.NodeKeyPair.PrivateKey, vote_hash)
+	var extension packets.HeaderExtension
+
+	extension.SetBlockType(packets.BLOCK_TYPE_NOT_A_BLOCK)
+	extension.SetCount(uint16(len(all_hashes)))
+
+	return srv.WriteToPeer(peer, packets.PACKET_TYPE_CONFIRM_ACK, extension, srv.NodeKeyPair.PublicKey[:], vote_signature, timestamp_and_vote_duration[:])
 }
 
 func calculateVoteHash(
+	timestamp_and_vote_duration packets.TimestampAndVoteDuration,
+	hashes *[]types.Hash,
+) ([]byte, error) {
+	vote_hash, err := blake2b.New(32, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	vote_hash.Write([]byte("vote "))
+	for _, hash := range *hashes {
+		vote_hash.Write(hash[:])
+	}
+
+	vote_hash.Write(timestamp_and_vote_duration[:])
+
+	return vote_hash.Sum(nil), nil
+}
+
+func calculateVoteHashPtrs(
 	timestamp_and_vote_duration packets.TimestampAndVoteDuration,
 	hashes *[]*types.Hash,
 ) ([]byte, error) {
@@ -75,7 +123,7 @@ func (srv *P2P) handleConfirmAckBlock(reader packets.PacketReader, header *packe
 		return err
 	}
 
-	log.Println("Discarded confirm_ack_by_block packet from", peer.NodeID.ToNodeAddress(), peer.Conn.RemoteAddr().String(), "voter:", vote_address.ToNanoAddress())
+	log.Println("Discarded confirm_ack_by_block packet from", peer.NodeID.ToNodeAddress(), peer.Alias, "voter:", vote_address.ToNanoAddress())
 
 	return nil
 }

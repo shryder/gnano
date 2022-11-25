@@ -50,11 +50,11 @@ func (srv *P2P) SendTelemetryAck(peer *networking.PeerNode) error {
 	packet.WriteBE(uint64(time.Now().UnixMilli()))                            // timestamp
 	packet.WriteBE(uint64(0x2552552552480000))                                // active difficulty
 
-	return peer.Write(srv.MakePacket(packets.PACKET_TYPE_TELEMETRY_ACK, 0, packet.Buff.Bytes()))
+	return srv.WriteToPeer(peer, packets.PACKET_TYPE_TELEMETRY_ACK, packets.HeaderExtension{}, packet.Buff.Bytes())
 }
 
 func (srv *P2P) SendTelemetryReq(peer *networking.PeerNode) error {
-	return peer.Write(srv.MakePacket(packets.PACKET_TYPE_TELEMETRY_REQ, 0))
+	return srv.WriteToPeer(peer, packets.PACKET_TYPE_TELEMETRY_REQ, packets.HeaderExtension{})
 }
 
 func (srv *P2P) HandleTelemetryReq(reader packets.PacketReader, header *packets.Header, peer *networking.PeerNode) error {

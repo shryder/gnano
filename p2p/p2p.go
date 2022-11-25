@@ -27,6 +27,7 @@ type P2P struct {
 
 	PeersManager           PeersManager
 	UncheckedBlocksManager UncheckedBlocksManager
+	BootstrapDataManager   BootstrapDataManager
 
 	NodeKeyPair        NodeKeyPair
 	NodeStartTimestamp uint64
@@ -42,19 +43,20 @@ func New(cfg *Config) *P2P {
 	}
 
 	srv := &P2P{
-		Config:                 cfg,
-		NodeStartTimestamp:     uint64(time.Now().UnixMilli()),
-		UncheckedBlocksManager: NewUncheckedBlocksManager(),
-		VotingEnabled:          false,
-		GenesisBlock:           *genesis_hash,
+		Config:             cfg,
+		NodeStartTimestamp: uint64(time.Now().UnixMilli()),
+		VotingEnabled:      false,
+		GenesisBlock:       *genesis_hash,
 	}
 
 	srv.Workers = NewWorkerManager(srv)
 	srv.PeersManager = NewPeersManager(srv)
-
+	srv.UncheckedBlocksManager = NewUncheckedBlocksManager(srv)
+	srv.BootstrapDataManager = NewBootstrapDataManager()
 	return srv
 }
 
+// Check if we are above max peer count
 func (srv *P2P) ValidateIncomingConnection(conn net.Conn) error {
 	peer_count := srv.PeersManager.GetLivePeersCount()
 	if peer_count >= srv.Config.P2P.MaxLivePeers {
@@ -66,7 +68,9 @@ func (srv *P2P) ValidateIncomingConnection(conn net.Conn) error {
 }
 
 func (srv *P2P) HandleMessage(reader packets.PacketReader, header packets.Header, peer *networking.PeerNode) error {
-	log.Println("Received message", header.MessageType, "from", peer.NodeID.ToNodeAddress())
+	log.Println("Received message", header.MessageType.ToString(), "from", peer.Alias)
+
+	srv.PeersManager.LogPacket(peer, header, []byte{}, true)
 
 	switch header.MessageType {
 	case packets.PACKET_TYPE_KEEPALIVE:
@@ -97,18 +101,20 @@ func (srv *P2P) UnregisterPeer(peer *networking.PeerNode) {
 }
 
 func (srv *P2P) FormatConnReadError(err error, peer *networking.PeerNode) string {
-	nodeId := "BOOTSTRAP_CONNECTION"
-	if !peer.BootstrapConnection {
-		nodeId = peer.NodeID.ToNanoAddress()
-	}
-
 	if err == io.EOF {
-		return fmt.Sprintln("Peer", nodeId, peer.Conn.RemoteAddr().String(), "closed the connection.")
+		return fmt.Sprintln("Peer", peer.Alias, "closed the connection.")
 	} else if errors.Is(err, syscall.ECONNRESET) {
-		return fmt.Sprintln("Peer", nodeId, peer.Conn.RemoteAddr().String(), "force closed the connection.")
+		return fmt.Sprintln("Peer", peer.Alias, "force closed the connection.")
 	}
 
-	return fmt.Sprintln("Error reading from peer", nodeId, peer.Conn.RemoteAddr().String(), ":", err, "disconnecting...")
+	return fmt.Sprintln("Error reading from peer", peer.Alias, ":", err, "disconnecting...")
+}
+
+func (srv *P2P) WriteToPeer(peer *networking.PeerNode, message_type byte, extension packets.HeaderExtension, data ...[]byte) error {
+	header, packet := srv.MakePacket(message_type, extension, data...)
+	srv.PeersManager.LogPacket(peer, header, packet, false)
+
+	return peer.Write(append(header.Serialize(), packet...))
 }
 
 func (srv *P2P) HandleRegularConnection(conn net.Conn, reader *bufio.Reader) {
@@ -119,72 +125,49 @@ func (srv *P2P) HandleRegularConnection(conn net.Conn, reader *bufio.Reader) {
 		return
 	}
 
-	log.Println("Successfully finished handshake with", peer.NodeID.ToNodeAddress())
+	// Request telemetry from peer right after connecting
+	// err = srv.SendTelemetryReq(peer)
+	// if err != nil {
+	// 	log.Println(srv.FormatConnReadError(err, peer))
+
+	// 	return
+	// }
 
 	srv.RegisterPeer(peer)
 	defer srv.UnregisterPeer(peer)
 
-	// Request telemetry from peer right after connecting
-	err = srv.SendTelemetryReq(peer)
-	if err != nil {
-		log.Println(srv.FormatConnReadError(err, peer))
-
-		return
-	}
-
 	for {
 		header, err := srv.ReadHeader(reader)
 		if err != nil {
-			log.Println(srv.FormatConnReadError(err, peer))
+			srv.PeersManager.LogMessage(peer, fmt.Sprintf("Error reading header from peer: %s", srv.FormatConnReadError(err, peer)))
+			log.Println("Error reading header:", srv.FormatConnReadError(err, peer))
 
 			break
 		}
 
 		err = srv.HandleMessage(packets.PacketReader{Buffer: reader}, header, peer)
 		if err != nil {
+			srv.PeersManager.LogMessage(peer, fmt.Sprintf("Disconnecting. Error handling message from peer: %+v", err))
 			log.Println("Disconnecting. Error handling message from peer", peer.NodeID.ToNodeAddress(), remoteIP, ":", err)
 
 			break
 		}
-
-		return
-	}
-}
-
-func (srv *P2P) HandleBootstrapConnection(conn net.Conn, reader *bufio.Reader) {
-	peer := networking.NewPeerNode(conn, nil, true)
-
-	srv.RegisterPeer(peer)
-	defer srv.UnregisterPeer(peer)
-
-	genesis_wallet, _ := types.StringToHash("45C6FF9D1706D61F0821327752671BDA9F9ED2DA40326B01935AB566FB9E08ED")
-	err := srv.SendBulkPull(peer, *genesis_wallet, types.Hash{})
-	if err != nil {
-		log.Println(srv.FormatConnReadError(err, peer))
-		return
-	}
-
-	err = srv.HandleBulkPullResponse(packets.PacketReader{Buffer: reader}, peer)
-	if err != nil {
-		log.Println(srv.FormatConnReadError(err, peer))
-		return
 	}
 }
 
 func (srv *P2P) HandleConnection(conn net.Conn, incoming bool, bootstrap_connection bool) {
 	remoteIP := conn.RemoteAddr().String()
-
 	if incoming {
 		err := srv.ValidateIncomingConnection(conn)
 		if err != nil {
 			log.Println("Connection validation failed:", err)
+
 			return
 		}
 	}
 
-	log.Println("Successfully established connection with", remoteIP)
+	log.Println("Successfully established connection with", remoteIP, "bootstrap_connection:", bootstrap_connection, "incoming:", incoming)
 	reader := bufio.NewReader(conn)
-
 	if bootstrap_connection {
 		srv.HandleBootstrapConnection(conn, reader)
 	} else {
@@ -213,12 +196,13 @@ func (srv *P2P) StartListening() {
 }
 
 func (srv *P2P) Start() {
-	srv.Workers.StartWorkers()
+	srv.Workers.Start()
 	srv.PeersManager.Start()
+	srv.UncheckedBlocksManager.Start()
 
-	for _, ip := range srv.Config.P2P.TrustedNodes {
-		srv.PeersManager.ConnectToNode(ip, false)
-	}
+	// for _, ip := range srv.Config.P2P.TrustedNodes {
+	// 	srv.PeersManager.ConnectToNode(ip, false)
+	// }
 
 	srv.StartListening()
 }

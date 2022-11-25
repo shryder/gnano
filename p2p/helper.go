@@ -22,27 +22,20 @@ func (srv *P2P) ReadHeader(reader io.Reader) (packets.Header, error) {
 	return header, nil
 }
 
-func (srv *P2P) MakePacket(message_type byte, extension uint16, data ...[]byte) []byte {
+func (srv *P2P) MakePacket(message_type byte, extension packets.HeaderExtension, data ...[]byte) (packets.Header, []byte) {
 	// Build packet header
-	extensions_le := binary.BigEndian.AppendUint16(make([]byte, 0), extension)
-	packet := []byte{
-		srv.Config.NetworkId[0],
-		srv.Config.NetworkId[1],
-
-		18,
-		18,
-		18,
-
-		message_type,
-
-		extensions_le[0],
-		extensions_le[1],
+	header := packets.Header{
+		NetworkID:       [2]byte{srv.Config.NetworkId[0], srv.Config.NetworkId[1]},
+		ProtocolVersion: packets.ProtocolVersion{Max: 18, Using: 18, Min: 18},
+		MessageType:     packets.MessageType(message_type),
+		Extension:       extension,
 	}
 
-	// Append all data fields
+	// join all data fields
+	packet := make([]byte, 0)
 	for _, field := range data {
 		packet = append(packet, field...)
 	}
 
-	return packet
+	return header, packet
 }

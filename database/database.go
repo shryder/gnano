@@ -22,7 +22,8 @@ type DatabaseBackend interface {
 
 	GetVotingWeight(address *types.Address) types.Amount
 
-	CementBlock(block *types.Block) error
+	PutBlock(block *types.Block) error
+	GetBlock(hash *types.Hash) *types.Block
 
 	Cleanup() error
 }

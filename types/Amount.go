@@ -1,10 +1,17 @@
 package types
 
 import (
+	"encoding/binary"
+	"strings"
+
 	. "lukechampine.com/uint128"
 )
 
 type Amount Uint128
+
+func (u Amount) Bytes() []byte {
+	return Uint128(u).Big().Bytes()
+}
 
 func (u Amount) Add(v Amount) Amount {
 	return Amount(Uint128(v).Add(Uint128(u)))
@@ -27,6 +34,17 @@ func (amount *Amount) String() string {
 	return Uint128(*amount).String()
 }
 
+func AmountFromBytesLE(amount_bytes []byte) Amount {
+	return Amount(FromBytes(amount_bytes))
+}
+
+func AmountFromBytesBE(amount_bytes []byte) Amount {
+	return Amount{
+		Hi: binary.BigEndian.Uint64(amount_bytes[:8]),
+		Lo: binary.BigEndian.Uint64(amount_bytes[8:]),
+	}
+}
+
 func AmountFromString(amount_str string) (Amount, error) {
 	amount, err := FromString(amount_str)
 	if err != nil {
@@ -41,10 +59,7 @@ func (amount Amount) MarshalJSON() ([]byte, error) {
 }
 
 func (amount *Amount) UnmarshalJSON(data []byte) error {
-	amount_str := string(data)[1:]              // remove leading double quotes
-	amount_str = amount_str[:len(amount_str)-1] // remove trailing double quotes
-
-	amount_uint128, err := FromString(amount_str)
+	amount_uint128, err := FromString(strings.Trim(string(data), `"`))
 	if err != nil {
 		return err
 	}

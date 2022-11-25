@@ -15,7 +15,7 @@ func NewWorkerManager(srv *P2P) WorkersManager {
 	}
 }
 
-func (manager *WorkersManager) StartWorkers() {
+func (manager *WorkersManager) Start() {
 	go manager.ConfirmReq.Start()
 	go manager.ConfirmAck.Start()
 }

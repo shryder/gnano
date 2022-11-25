@@ -1,34 +1,36 @@
 package p2p
 
 import (
-	"io"
 	"log"
 
 	"github.com/Shryder/gnano/p2p/networking"
 	"github.com/Shryder/gnano/p2p/packets"
+	"github.com/Shryder/gnano/types"
 )
 
-func (srv *P2P) HandleBulkPullResponse(reader packets.PacketReader, peer *networking.PeerNode) error {
+func (srv *P2P) HandleBulkPullResponse(reader packets.PacketReader, peer *networking.PeerNode, our_start types.Hash, our_end types.Hash) error {
+	count := uint(0)
 	for {
-		block_type_byte := make([]byte, 1)
-		_, err := io.ReadFull(reader, block_type_byte)
+		block_type_byte, err := reader.Buffer.ReadByte()
 		if err != nil {
 			return err
 		}
 
-		if block_type_byte[0] == packets.BLOCK_TYPE_NOT_A_BLOCK {
-			log.Println("Reached bulk_pull_response end")
+		if block_type_byte == packets.BLOCK_TYPE_NOT_A_BLOCK {
 			break
 		}
 
-		block_type := packets.BlockType(block_type_byte[0])
-		block, err := reader.ReadBlock(block_type)
+		block, err := reader.ReadBlock(packets.BlockType(block_type_byte))
 		if err != nil {
 			return err
 		}
 
-		log.Println("Read block of type:", block_type_byte[0], block.Hash.ToHexString())
+		srv.UncheckedBlocksManager.Add(block)
+		srv.BootstrapDataManager.FoundBlockBody(*block.Hash)
+		count++
 	}
+
+	log.Println("Peer", peer.Alias, "returned", count, "blocks for our bulk_pull(", our_start.ToHexString(), ",", our_end.ToHexString(), ")")
 
 	return nil
 }

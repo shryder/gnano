@@ -7,11 +7,12 @@ import (
 )
 
 func (srv *P2P) SendBulkPull(peer *networking.PeerNode, start types.Hash, end types.Hash) error {
-	return peer.Write(srv.MakePacket(
+	return srv.WriteToPeer(
+		peer,
 		packets.PACKET_TYPE_BULK_PULL,
-		0,
+		packets.HeaderExtension{},
 
 		start[:],
 		end[:],
-	))
+	)
 }

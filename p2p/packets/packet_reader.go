@@ -64,6 +64,17 @@ func (reader *PacketReader) ReadHash() (*types.Hash, error) {
 	return &hash, nil
 }
 
+func (reader *PacketReader) ReadAmountLE() (*types.Amount, error) {
+	amount_bytes := make([]byte, 16)
+	_, err := io.ReadFull(reader, amount_bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	amount := types.AmountFromBytesLE(amount_bytes)
+	return &amount, nil
+}
+
 func (reader *PacketReader) ReadBlock(blockType BlockType) (*types.Block, error) {
 	block_data := make([]byte, blockType.Size())
 	_, err := io.ReadFull(reader, block_data)

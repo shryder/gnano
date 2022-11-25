@@ -16,7 +16,7 @@ func (backend *JSONBackend) GetBlock(hash *types.Hash) *types.Block {
 	return &block
 }
 
-func (backend *JSONBackend) CementBlock(block *types.Block) error {
+func (backend *JSONBackend) PutBlock(block *types.Block) error {
 	backend.DataMutex.Lock()
 	defer backend.DataMutex.Unlock()
 
