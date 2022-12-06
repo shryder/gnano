@@ -45,13 +45,14 @@ func AmountFromBytesBE(amount_bytes []byte) Amount {
 	}
 }
 
-func AmountFromString(amount_str string) (Amount, error) {
-	amount, err := FromString(amount_str)
+func AmountFromString(amount_str string) (*Amount, error) {
+	u128, err := FromString(amount_str)
 	if err != nil {
-		return Amount{}, err
+		return nil, err
 	}
 
-	return Amount(amount), nil
+	amount := Amount(u128)
+	return &amount, nil
 }
 
 func (amount Amount) MarshalJSON() ([]byte, error) {

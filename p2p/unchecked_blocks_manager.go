@@ -16,20 +16,20 @@ type UncheckedBlocksManager struct {
 	BatchVoteRequests      map[types.Hash]*types.Hash // mapping(hash => root)
 	BatchVoteRequestsMutex sync.RWMutex
 
-	Queue      chan *types.Block
-	Table      map[types.Hash]*types.Block
-	TableMutex sync.RWMutex
+	Queue                chan *types.Block
+	UncheckedBlocks      map[types.Hash]*types.Block
+	UncheckedBlocksMutex sync.RWMutex
 }
 
 func NewUncheckedBlocksManager(srv *P2P) UncheckedBlocksManager {
 	return UncheckedBlocksManager{
 		P2PServer:         srv,
 		Queue:             make(chan *types.Block, 256_000),
-		Table:             make(map[types.Hash]*types.Block),
+		UncheckedBlocks:   make(map[types.Hash]*types.Block, 256_000),
 		BatchVoteRequests: make(map[types.Hash]*types.Hash),
 
 		BatchVoteRequestsMutex: sync.RWMutex{},
-		TableMutex:             sync.RWMutex{},
+		UncheckedBlocksMutex:   sync.RWMutex{},
 	}
 }
 
@@ -42,30 +42,39 @@ func (manager *UncheckedBlocksManager) RequestVotesOnBlock(block *types.Block) {
 }
 
 func (manager *UncheckedBlocksManager) InsertToUncheckedTable(block *types.Block) {
-	manager.TableMutex.Lock()
-	defer manager.TableMutex.Unlock()
+	manager.UncheckedBlocksMutex.Lock()
+	defer manager.UncheckedBlocksMutex.Unlock()
 
-	manager.Table[*block.Hash] = block
+	manager.UncheckedBlocks[*block.Hash] = block
 }
 
-// Processes new incoming blocks (from bulk_pull_response/publish) and adds them to unchecked table then requests other nodes for votes on it
+func (manager *UncheckedBlocksManager) ValidateSignature(block *types.Block) bool {
+	epochV2 := "epoch v2 block"
+	if string(block.Link[0:len(epochV2)]) == epochV2 {
+		return true
+	}
+
+	epochV1 := "epoch v1 block"
+	if string(block.Link[0:len(epochV1)]) == epochV1 {
+		return true
+	}
+
+	return ed25519.Verify(ed25519.PublicKey(block.Account[:]), block.Hash[:], block.Signature[:])
+}
+
+// Processes new incoming blocks (from bulk_pull_response/publish) and adds them to unchecked table
 func (manager *UncheckedBlocksManager) ProcessNewBlocks() {
 	for {
 		block := <-manager.Queue
 
-		unchecked_block := manager.Get(block.Hash)
-		if unchecked_block != nil {
-			continue
-		}
-
-		valid_signature := ed25519.Verify(ed25519.PublicKey(block.Account[:]), block.Hash[:], block.Signature[:])
+		valid_signature := manager.ValidateSignature(block)
 		if !valid_signature {
 			log.Println("Encountered block with invalid signature:", block.Hash.ToHexString(), string(block.Link[:]), *block)
 			continue
 		}
 
 		manager.InsertToUncheckedTable(block)
-		manager.RequestVotesOnBlock(block) // TODO: Maybe wait a little before requesting other nodes for votes, depending on how we received the block
+		// manager.RequestVotesOnBlock(block) // TODO: Maybe wait a little before requesting other nodes for votes, depending on how we received the block
 	}
 }
 
@@ -105,15 +114,33 @@ func (manager *UncheckedBlocksManager) BatchRequestVotesOnUncheckedBlocks() {
 			continue
 		}
 
-		manager.P2PServer.Workers.ConfirmReq.RequestVotesOnTheseUnknownBlocks(hash_pairs, nil)
+		manager.P2PServer.Workers.ConfirmReq.RequestVotesOnTheseBlocks(hash_pairs, nil)
 	}
 }
 
 func (manager *UncheckedBlocksManager) UncheckedBlocksCount() uint {
-	manager.TableMutex.RLock()
-	defer manager.TableMutex.RUnlock()
+	manager.UncheckedBlocksMutex.RLock()
+	defer manager.UncheckedBlocksMutex.RUnlock()
 
-	return uint(len(manager.Table))
+	return uint(len(manager.UncheckedBlocks))
+}
+
+func (manager *UncheckedBlocksManager) GetRandomBlock() *types.Hash {
+	manager.UncheckedBlocksMutex.RLock()
+	defer manager.UncheckedBlocksMutex.RUnlock()
+
+	for hash := range manager.UncheckedBlocks {
+		return &hash
+	}
+
+	return nil
+}
+
+func (manager *UncheckedBlocksManager) GetUncheckedBlocks() map[types.Hash]*types.Block {
+	manager.UncheckedBlocksMutex.RLock()
+	defer manager.UncheckedBlocksMutex.RUnlock()
+
+	return manager.UncheckedBlocks
 }
 
 func (manager *UncheckedBlocksManager) Start() {
@@ -122,16 +149,16 @@ func (manager *UncheckedBlocksManager) Start() {
 }
 
 func (manager *UncheckedBlocksManager) Get(hash *types.Hash) *types.Block {
-	manager.TableMutex.RLock()
-	defer manager.TableMutex.RUnlock()
+	manager.UncheckedBlocksMutex.RLock()
+	defer manager.UncheckedBlocksMutex.RUnlock()
 
-	return manager.Table[*hash]
+	return manager.UncheckedBlocks[*hash]
 }
 
 func (manager *UncheckedBlocksManager) Remove(hash *types.Hash) {
-	manager.TableMutex.Lock()
-	delete(manager.Table, *hash)
-	manager.TableMutex.Unlock()
+	manager.UncheckedBlocksMutex.Lock()
+	delete(manager.UncheckedBlocks, *hash)
+	manager.UncheckedBlocksMutex.Unlock()
 }
 
 func (manager *UncheckedBlocksManager) Add(block *types.Block) {

@@ -8,9 +8,9 @@ import (
 )
 
 type PeerNode struct {
-	Alias      string
-	Conn       net.Conn
-	writeMutex sync.Mutex
+	Alias string
+	Conn  net.Conn
+	mux   sync.Mutex
 
 	BootstrapConnection bool
 
@@ -31,14 +31,14 @@ func NewPeerNode(conn net.Conn, nodeId *types.Address, bootstrap_connection bool
 		NodeID:              nodeId,
 		BootstrapConnection: bootstrap_connection,
 
-		writeMutex: sync.Mutex{},
+		mux: sync.Mutex{},
 	}
 }
 
 func (peer *PeerNode) Write(p []byte) error {
-	peer.writeMutex.Lock()
+	peer.mux.Lock()
 	_, err := peer.Conn.Write(p)
-	peer.writeMutex.Unlock()
+	peer.mux.Unlock()
 
 	return err
 }

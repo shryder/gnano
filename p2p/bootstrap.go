@@ -24,20 +24,11 @@ func NewBootstrapDataManager() BootstrapDataManager {
 	}
 }
 
-func (manager *BootstrapDataManager) FoundBlockWithoutBody(hash_pairs [][]byte) {
+func (manager *BootstrapDataManager) AddUnknownBlockHash(hash *types.Hash) {
 	manager.NeedBlockBodyMutex.Lock()
 	defer manager.NeedBlockBodyMutex.Unlock()
 
-	for _, pair := range hash_pairs {
-		var hash types.Hash
-		var root types.Hash
-
-		copy(hash[:], pair[0:32])
-		copy(root[:], pair[32:64])
-
-		manager.NeedBlockBody[hash] = true
-		manager.NeedBlockBody[root] = true
-	}
+	manager.NeedBlockBody[*hash] = true
 }
 
 func (manager *BootstrapDataManager) FoundBlockBody(hash types.Hash) {
@@ -47,7 +38,7 @@ func (manager *BootstrapDataManager) FoundBlockBody(hash types.Hash) {
 	delete(manager.NeedBlockBody, hash)
 }
 
-func (manager *BootstrapDataManager) GetBlock() *types.Hash {
+func (manager *BootstrapDataManager) GetMissingBlock() *types.Hash {
 	manager.NeedBlockBodyMutex.RLock()
 	defer manager.NeedBlockBodyMutex.RUnlock()
 
@@ -64,35 +55,43 @@ func (srv *P2P) HandleBootstrapConnection(conn net.Conn, reader *bufio.Reader) {
 	srv.RegisterPeer(peer)
 	defer srv.UnregisterPeer(peer)
 
-	err := srv.StartBootstrapingFromGenesis(conn, packets.PacketReader{Buffer: reader}, peer)
+	err := srv.StartBootstrapping(conn, packets.PacketReader{Buffer: reader}, peer)
 	if err != nil {
-		log.Println("Error bootstrapping from genesis:", srv.FormatConnReadError(err, peer))
+		log.Println("Error with bootstrap connection:", srv.FormatConnReadError(err, peer))
 		return
 	}
 }
 
-func (srv *P2P) StartBootstrapingFromGenesis(conn net.Conn, reader packets.PacketReader, peer *networking.PeerNode) error {
+func (srv *P2P) StartBootstrapping(conn net.Conn, reader packets.PacketReader, peer *networking.PeerNode) error {
 	// First bulk pull will be requesting genesis address
-	genesis_address, _ := types.StringToHash("45C6FF9D1706D61F0821327752671BDA9F9ED2DA40326B01935AB566FB9E08ED")
-	err := srv.SendBulkPull(peer, *genesis_address, types.Hash{})
+	err := srv.SendBulkPull(peer, types.Hash(*srv.GenesisBlock.Account), types.Hash{})
 	if err != nil {
 		return err
 	}
 
-	err = srv.HandleBulkPullResponse(reader, peer, *genesis_address, types.Hash{})
+	err = srv.HandleBulkPullResponse(reader, peer, types.Hash(*srv.GenesisBlock.Account), types.Hash{})
 	if err != nil {
 		return err
 	}
 
-	// Continuously bulk_pull blocks that we know we did not have
+	// Continuously bulk_pull blocks that we know we do not have
 	for {
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Millisecond * 250)
 
-		block_to_bulk_pull := srv.BootstrapDataManager.GetBlock()
+		block_to_bulk_pull := srv.BootstrapDataManager.GetMissingBlock()
 		if block_to_bulk_pull == nil {
-			continue
+			// Try finding a random address in the ledger to pull
+			random_address := srv.Database.Backend.GetRandomAccountAddress()
+			random_address_hash := types.Hash(*random_address)
+			block_to_bulk_pull = &random_address_hash
+
+			log.Println("Bulk pulling random address:", random_address.ToNanoAddress())
+			if block_to_bulk_pull == nil {
+				continue
+			}
 		}
 
+		log.Println("requesting bulk_pull for:", block_to_bulk_pull.ToHexString())
 		err := srv.SendBulkPull(peer, *block_to_bulk_pull, types.Hash{})
 		if err != nil {
 			return err

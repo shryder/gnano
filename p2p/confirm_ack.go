@@ -9,23 +9,26 @@ import (
 	"github.com/Shryder/gnano/p2p/networking"
 	"github.com/Shryder/gnano/p2p/packets"
 	"github.com/Shryder/gnano/types"
+	"github.com/Shryder/gnano/utils"
 	"github.com/shryder/ed25519-blake2b"
 	"golang.org/x/crypto/blake2b"
 )
 
 func (srv *P2P) SendConfirmAck(peer *networking.PeerNode, hashPairs []*packets.HashPair) error {
 	pairs_bytes := make([][]byte, len(hashPairs))
-	all_hashes := make([]types.Hash, len(hashPairs)*2)
+	pairs_bytes_flat := make([]byte, 0)
+	all_hashes := make([]types.Hash, 0)
 	for i, pair := range hashPairs {
 		pairs_bytes[i] = append(pair.Hash[:], pair.Root[:]...)
+		pairs_bytes_flat = append(pairs_bytes_flat, pairs_bytes[i]...)
 		all_hashes = append(all_hashes, *pair.Hash, *pair.Root)
 	}
 
 	if len(all_hashes) > 16 {
-		return errors.New("Can't confirm_ack more than 16 hash pairs")
+		return errors.New("can't confirm_ack more than 16 hash pairs")
 	}
 
-	log.Println("sending confirm_ack on", HashPairToString(pairs_bytes), "to", peer.Alias)
+	log.Println("sending confirm_ack on", utils.HashPairToString(pairs_bytes), "to", peer.Alias)
 
 	timestamp_and_vote_duration := packets.TimestampAndVoteDuration{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	vote_hash, err := calculateVoteHash(timestamp_and_vote_duration, &all_hashes)
@@ -41,7 +44,7 @@ func (srv *P2P) SendConfirmAck(peer *networking.PeerNode, hashPairs []*packets.H
 	extension.SetBlockType(packets.BLOCK_TYPE_NOT_A_BLOCK)
 	extension.SetCount(uint16(len(all_hashes)))
 
-	return srv.WriteToPeer(peer, packets.PACKET_TYPE_CONFIRM_ACK, extension, srv.NodeKeyPair.PublicKey[:], vote_signature, timestamp_and_vote_duration[:])
+	return srv.WriteToPeer(peer, packets.PACKET_TYPE_CONFIRM_ACK, extension, srv.NodeKeyPair.PublicKey[:], vote_signature, timestamp_and_vote_duration[:], pairs_bytes_flat)
 }
 
 func calculateVoteHash(
@@ -91,15 +94,19 @@ func (srv *P2P) handleConfirmAckHashes(
 	timestamp_and_vote_duration *packets.TimestampAndVoteDuration,
 ) error {
 	hashes := make([]*types.Hash, header.Extension.Count())
+	hashes_str := fmt.Sprintf("%d hashes: ", len(hashes))
 
 	for i := 0; i < len(hashes); i++ {
 		hash, err := reader.ReadHash()
 		if err != nil {
-			return fmt.Errorf("Encountered an error while reading confirm_ack hashes: %w", err)
+			return fmt.Errorf("encountered an error while reading confirm_ack hashes: %w", err)
 		}
 
 		hashes[i] = hash
+		hashes_str += hash.ToHexString() + ", "
 	}
+
+	srv.PeersManager.LogPacket(peer, *header, []byte(hashes_str), true)
 
 	srv.Workers.ConfirmAck.AddConfirmAckToQueue(peer, &packets.ConfirmAckByHashes{
 		Account:                  vote_address,

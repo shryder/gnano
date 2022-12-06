@@ -24,6 +24,12 @@ type DatabaseBackend interface {
 
 	PutBlock(block *types.Block) error
 	GetBlock(hash *types.Hash) *types.Block
+	GetBlockCount() uint64
+
+	GetAccount(address *types.Address) *types.Account
+	GetAccountChain(address *types.Address) []string
+	GetRandomAccountAddress() *types.Address
+	GetAccountCount() uint64
 
 	Cleanup() error
 }
@@ -93,7 +99,7 @@ func (srv *Database) LoadOrCreateNodeIdentity() (ed25519.PublicKey, ed25519.Priv
 
 func (db *Database) ValidateAndStart() error {
 	if len(db.Config.DataDir) == 0 {
-		return errors.New("Invalid DataDir provided")
+		return errors.New("invalid DataDir provided")
 	}
 
 	backend, err := db.InitializeBackend()
@@ -102,6 +108,8 @@ func (db *Database) ValidateAndStart() error {
 	}
 
 	db.Backend = backend
+
+	log.Println("Block Count:", db.Backend.GetBlockCount())
 
 	return nil
 }

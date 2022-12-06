@@ -1,5 +1,6 @@
 .vscode
 .DS_Store
 
+logs/
 config.toml
 test.go

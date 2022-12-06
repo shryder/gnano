@@ -31,5 +31,6 @@ func (srv *P2P) HandleKeepAlive(reader packets.PacketReader, header *packets.Hea
 
 	srv.Database.Backend.AddNodeIPs(peers)
 
-	return nil
+	// Write back the keepalive
+	return srv.WriteToPeer(peer, packets.PACKET_TYPE_KEEPALIVE, packets.HeaderExtension{}, message)
 }

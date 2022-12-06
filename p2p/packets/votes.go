@@ -37,6 +37,6 @@ func (tvd *TimestampAndVoteDuration) IsFinalVote() bool {
 	return tvd.Uint64() == math.MaxUint64
 }
 
-func (pair *HashPair) ToBytes() []byte {
+func (pair *HashPair) ToSlice() []byte {
 	return append((*pair.Hash)[:], (*pair.Root)[:]...)
 }

@@ -91,7 +91,7 @@ func ParseReceiveBlock(data []byte) *types.Block {
 	hash := utils.Blake2BHash(previous[:], source[:])
 
 	return &types.Block{
-		Type:      "receive",
+		Type:      types.BLOCK_TYPE_RECEIVE,
 		Hash:      hash,
 		Previous:  &previous,
 		Link:      &source,
@@ -123,7 +123,7 @@ func ParseOpenBlock(data []byte) *types.Block {
 	hash := utils.Blake2BHash(source[:], representative[:], account[:])
 
 	return &types.Block{
-		Type:           "open",
+		Type:           types.BLOCK_TYPE_OPEN,
 		Hash:           hash,
 		Account:        &account,
 		Previous:       &previous,
@@ -152,7 +152,7 @@ func ParseChangeBlock(data []byte) *types.Block {
 	hash := utils.Blake2BHash(previous[:], representative[:])
 
 	return &types.Block{
-		Type:           "change",
+		Type:           types.BLOCK_TYPE_CHANGE,
 		Hash:           hash,
 		Previous:       &previous,
 		Signature:      &signature,
@@ -193,7 +193,7 @@ func ParseStateBlock(data []byte) *types.Block {
 	)
 
 	return &types.Block{
-		Type:           "state",
+		Type:           types.BLOCK_TYPE_STATE,
 		Hash:           hash,
 		Account:        &account,
 		Previous:       &previous,

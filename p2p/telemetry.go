@@ -33,15 +33,15 @@ func (srv *P2P) SendTelemetryAck(peer *networking.PeerNode) error {
 	var packet packets.PacketBody
 
 	packet.WriteBE(srv.NodeKeyPair.PublicKey)                                 // node_id
-	packet.WriteBE(uint64(0x93146))                                           // block count
-	packet.WriteBE(uint64(0x93146))                                           // cemented count
-	packet.WriteBE(uint64(0))                                                 // unchecked count
-	packet.WriteBE(uint64(0x31333))                                           // account count
+	packet.WriteBE(srv.Database.Backend.GetBlockCount())                      // block count
+	packet.WriteBE(srv.Database.Backend.GetBlockCount())                      // cemented count
+	packet.WriteBE(srv.UncheckedBlocksManager.UncheckedBlocksCount())         // unchecked count
+	packet.WriteBE(srv.Database.Backend.GetAccountCount())                    // account count
 	packet.WriteBE(uint64(0))                                                 // bandwidth count
 	packet.WriteBE(uint64(4))                                                 // peer count
 	packet.WriteBE(packets.PROTOCOL_VERSION)                                  // protocol ver
 	packet.WriteBE((uint64(time.Now().UnixMilli()) - srv.NodeStartTimestamp)) // uptime
-	packet.WriteBE(srv.GenesisBlock[:])                                       // genesis block
+	packet.WriteBE(srv.GenesisBlock.Hash[:])                                  // genesis block
 	packet.WriteBE(byte(32))                                                  // major ver
 	packet.WriteBE(byte(3))                                                   // minor ver
 	packet.WriteBE(byte(0))                                                   // patch ver

@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"encoding/hex"
 	"io"
 	"log"
 	"os"
@@ -11,81 +10,74 @@ import (
 	"github.com/Shryder/gnano/p2p/networking"
 	"github.com/Shryder/gnano/p2p/packets"
 	"github.com/Shryder/gnano/types"
+	"github.com/Shryder/gnano/utils"
 )
-
-type VoteKey struct {
-	Root types.Hash
-	Hash types.Hash
-}
-
-type PeerConfirmRequests struct {
-	HashPairRequests [][]*packets.HashPair
-	BlockRequests    []*types.Block
-	Mutex            sync.RWMutex
-}
 
 type ConfirmReqWorker struct {
 	Logger    *log.Logger
 	P2PServer *P2P
 
-	RequestForConfirmations map[*networking.PeerNode]chan *[][]byte // array of hashpairs
+	RequestForConfirmations      map[types.HashPair]bool // Hashpairs that we are looking for votes for, maybe store origin as well
+	RequestForConfirmationsMutex sync.RWMutex
 
-	ReceivedHashPairsQueue map[*networking.PeerNode]chan []*packets.HashPair
-	ReceivedBlocksQueue    map[*networking.PeerNode]chan *types.Block
-	Mutex                  sync.Mutex
+	IncomingConfirmReqQueue      map[*networking.PeerNode]chan []*packets.HashPair
+	IncomingConfirmReqQueueMutex sync.RWMutex
 }
 
-func HashPairToString(hash_pairs [][]byte) []string {
-	arr := make([]string, len(hash_pairs))
-	for i, pair := range hash_pairs {
-		arr[i] = "[" + hex.EncodeToString(pair[0:32]) + `, ` + hex.EncodeToString(pair[32:64]) + "]"
-	}
-
-	return arr
-}
-
-func (worker *ConfirmReqWorker) RequestVotesOnTheseUnknownBlocks(hash_pairs [][]byte, block_origin *networking.PeerNode) {
-	subset_amount := worker.P2PServer.PeersManager.GetSubsetOfLivePeers()
-
+func (worker *ConfirmReqWorker) RequestVotesOnTheseBlocks(hash_pairs [][]byte, block_origin *networking.PeerNode) {
 	if block_origin != nil {
-		worker.Logger.Println("Peer", block_origin.Alias, "notified us on", len(hash_pairs), "pairs that we are not aware of. Requesting votes from", subset_amount, "other peers.", HashPairToString(hash_pairs))
+		worker.Logger.Println("Peer", block_origin.Alias, "notified us on", len(hash_pairs), "pairs that we are not aware of. Requesting votes from other peers.", utils.HashPairToString(hash_pairs))
 	} else {
-		worker.Logger.Println("Requesting votes on", len(hash_pairs), "pairs from", subset_amount, "peers", HashPairToString(hash_pairs))
+		worker.Logger.Println("Requesting votes on", len(hash_pairs), "pairs from peers", utils.HashPairToString(hash_pairs))
 	}
 
-	// Ask other peers about these unknown blocks
-	worker.P2PServer.PeersManager.PeersMutex.RLock()
-	for _, peer := range worker.P2PServer.PeersManager.LivePeers {
-		if peer == block_origin {
-			continue
-		}
+	// Queue to ask other peers about these unknown blocks
+	worker.RequestForConfirmationsMutex.Lock()
+	for _, pair := range hash_pairs {
+		hashPair := new(types.HashPair)
+		hashPair.FromSlice(pair)
 
-		if subset_amount == 0 {
+		worker.RequestForConfirmations[*hashPair] = true
+	}
+	worker.RequestForConfirmationsMutex.Unlock()
+}
+
+// Removes the hashpairs from worker.RequestForConfirmations once the block has been cemented
+func (worker *ConfirmReqWorker) MarkBlockAsConfirmed(pair types.HashPair) {
+	worker.RequestForConfirmationsMutex.Lock()
+	delete(worker.RequestForConfirmations, pair)
+	worker.RequestForConfirmationsMutex.Unlock()
+}
+
+// Returns max of 12 hashpairs to request votes for, read from RequestForConfirmations
+func (worker *ConfirmReqWorker) GetHashPairsToRequestVotesFor() []types.HashPair {
+	pending := make([]types.HashPair, 0)
+
+	worker.RequestForConfirmationsMutex.RLock()
+	for pair := range worker.RequestForConfirmations {
+		pending = append(pending, pair)
+
+		// max 12
+		if len(pending) == 12 {
 			break
 		}
-
-		worker.RequestForConfirmations[peer] <- &hash_pairs
-
-		subset_amount--
 	}
-	worker.P2PServer.PeersManager.PeersMutex.RUnlock()
+	worker.RequestForConfirmationsMutex.RUnlock()
+
+	return pending
 }
 
 func (worker *ConfirmReqWorker) StartRequestingConfirmations() {
 	for {
-		time.Sleep(time.Millisecond * 250)
-
-		for peer, channel := range worker.RequestForConfirmations {
-			select {
-			case pair := <-channel:
-				err := worker.P2PServer.SendConfirmReq(peer, *pair)
-				if err != nil {
-					worker.Logger.Println("Error sending confirm_req to peer", peer.Alias, err)
-				}
-			default:
-				continue
+		pending := worker.GetHashPairsToRequestVotesFor()
+		if len(pending) > 0 {
+			err := worker.P2PServer.SendConfirmReqToPeers(pending)
+			if err != nil {
+				worker.Logger.Println("Error sending confirm_req to peer", err)
 			}
 		}
+
+		time.Sleep(time.Millisecond * 50)
 	}
 }
 
@@ -111,17 +103,10 @@ func (worker *ConfirmReqWorker) HandleHashPairRequest(peer *networking.PeerNode,
 		}
 
 		// TODO: check if root is known
-		unknown_hash_pairs = append(unknown_hash_pairs, hashPair.ToBytes())
+		unknown_hash_pairs = append(unknown_hash_pairs, hashPair.ToSlice())
 	}
 
-	// Ask other nodes to confirm_req these new unknown blocks
-	// TODO: add the unkown block to a queue to prevent DDoS & duplicate requests
-	if len(unknown_hash_pairs) > 0 {
-		worker.P2PServer.BootstrapDataManager.FoundBlockWithoutBody(unknown_hash_pairs)
-		worker.RequestVotesOnTheseUnknownBlocks(unknown_hash_pairs, peer) // maybe request votes after we receive the block
-	}
-
-	worker.Logger.Println("Finished processing", len(hashPairs), "hashpair requests from", peer.NodeID.ToNodeAddress())
+	worker.Logger.Println("Finished processing", len(hashPairs), "hashpair requests from", peer.NodeID.ToNodeAddress(), "unknown pairs count:", len(unknown_hash_pairs))
 }
 
 func (worker *ConfirmReqWorker) HandleBlockRequest(node *networking.PeerNode, block *types.Block) {
@@ -130,53 +115,48 @@ func (worker *ConfirmReqWorker) HandleBlockRequest(node *networking.PeerNode, bl
 
 func (worker *ConfirmReqWorker) StartQueueProcessor() {
 	for {
-		worker.Mutex.Lock()
-		// If a key is in ReceivedHashPairsQueue then it should be in ReceivedBlocksQueue as well
-		for peer := range worker.ReceivedHashPairsQueue {
+		worker.IncomingConfirmReqQueueMutex.RLock()
+
+		for peer := range worker.IncomingConfirmReqQueue {
+			// Read from peer's confirm_req queue, if there is anything to read
 			select {
-			case pairs := <-worker.ReceivedHashPairsQueue[peer]:
-				worker.HandleHashPairRequest(peer, pairs)
-
-			case block := <-worker.ReceivedBlocksQueue[peer]:
-				worker.HandleBlockRequest(peer, block)
-
+			case pair, ok := <-worker.IncomingConfirmReqQueue[peer]:
+				if ok {
+					worker.HandleHashPairRequest(peer, pair)
+				}
 			default:
 				continue
 			}
 		}
-		worker.Mutex.Unlock()
 
-		time.Sleep(time.Millisecond * 250)
+		worker.IncomingConfirmReqQueueMutex.RUnlock()
+
+		time.Sleep(time.Millisecond * 50)
 	}
 }
 
 func (worker *ConfirmReqWorker) Start() {
-	go worker.StartQueueProcessor()
+	for i := 0; i < 16; i++ {
+		go worker.StartQueueProcessor()
+	}
+
 	go worker.StartRequestingConfirmations()
 }
 
 func (worker *ConfirmReqWorker) AddConfirmReqHashPairsToQueue(peer *networking.PeerNode, pairs []*packets.HashPair) {
-	worker.ReceivedHashPairsQueue[peer] <- pairs
-}
-
-func (worker *ConfirmReqWorker) ProcessBlock(peer *networking.PeerNode, block *types.Block) {
-	worker.ReceivedBlocksQueue[peer] <- block
+	worker.IncomingConfirmReqQueue[peer] <- pairs
 }
 
 func (worker *ConfirmReqWorker) RegisterNewPeer(peer *networking.PeerNode) {
-	worker.Mutex.Lock()
-	worker.ReceivedHashPairsQueue[peer] = make(chan []*packets.HashPair)
-	worker.ReceivedBlocksQueue[peer] = make(chan *types.Block)
-	worker.RequestForConfirmations[peer] = make(chan *[][]byte)
-	worker.Mutex.Unlock()
+	worker.IncomingConfirmReqQueueMutex.Lock()
+	worker.IncomingConfirmReqQueue[peer] = make(chan []*packets.HashPair, 65536)
+	worker.IncomingConfirmReqQueueMutex.Unlock()
 }
 
 func (worker *ConfirmReqWorker) UnregisterNewPeer(peer *networking.PeerNode) {
-	worker.Mutex.Lock()
-	delete(worker.ReceivedHashPairsQueue, peer)
-	delete(worker.ReceivedBlocksQueue, peer)
-	delete(worker.RequestForConfirmations, peer)
-	worker.Mutex.Unlock()
+	worker.IncomingConfirmReqQueueMutex.Lock()
+	delete(worker.IncomingConfirmReqQueue, peer)
+	worker.IncomingConfirmReqQueueMutex.Unlock()
 }
 
 func NewConfirmReqWorker(srv *P2P) *ConfirmReqWorker {
@@ -189,8 +169,9 @@ func NewConfirmReqWorker(srv *P2P) *ConfirmReqWorker {
 		Logger:    logger,
 		P2PServer: srv,
 
-		RequestForConfirmations: make(map[*networking.PeerNode]chan *[][]byte),
-		ReceivedHashPairsQueue:  make(map[*networking.PeerNode]chan []*packets.HashPair, 1024),
-		ReceivedBlocksQueue:     make(map[*networking.PeerNode]chan *types.Block, 1024),
+		RequestForConfirmations:      make(map[types.HashPair]bool),
+		RequestForConfirmationsMutex: sync.RWMutex{},
+
+		IncomingConfirmReqQueue: make(map[*networking.PeerNode]chan []*packets.HashPair, 1024),
 	}
 }

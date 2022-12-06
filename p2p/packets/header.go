@@ -14,6 +14,7 @@ type ProtocolVersion struct {
 	Using byte
 	Min   byte
 }
+
 type Header struct {
 	NetworkID       [2]byte
 	ProtocolVersion ProtocolVersion

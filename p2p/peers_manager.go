@@ -8,6 +8,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,8 +39,13 @@ func NewPeersManager(srv *P2P) PeersManager {
 	}
 }
 
-func (manager *PeersManager) GetSavedPeers() ([]string, error) {
-	return manager.P2PServer.Config.P2P.TrustedNodes, nil
+func (manager *PeersManager) GetSavedPeers() (map[string]uint, error) {
+	return map[string]uint{
+		"168.119.169.116:17075": 1670022243,
+		"168.119.169.134:17075": 1670022243,
+		"168.119.169.220:17075": 1670022243,
+		"168.119.169.221:17075": 1670022243,
+	}, nil
 	// return manager.P2PServer.Database.Backend.GetNodeIPs()
 }
 
@@ -49,7 +55,7 @@ func (manager *PeersManager) MaintainLivePeersCount(peer_count uint) {
 	}
 
 	remaining_slots := manager.P2PServer.Config.P2P.MaxLivePeers - peer_count
-	saved_peers, err := manager.P2PServer.Database.Backend.GetNodeIPs()
+	saved_peers, err := manager.GetSavedPeers()
 	if err != nil {
 		manager.Logger.Println("Error loading saved peers:", err)
 
@@ -78,7 +84,7 @@ func (manager *PeersManager) MaintainBootstrapPeersCount(peer_count uint) {
 	}
 
 	remaining_slots := manager.P2PServer.Config.P2P.MaxBootstrapPeers - peer_count
-	saved_peers, err := manager.P2PServer.Database.Backend.GetNodeIPs()
+	saved_peers, err := manager.GetSavedPeers()
 	if err != nil {
 		manager.Logger.Println("Error loading saved peers:", err)
 		return
@@ -112,13 +118,19 @@ func (manager *PeersManager) MaintainPeersCount() {
 	}
 }
 
+// Connects to the provided ip and returns after dialing attempt, will not return an error if we are already peered with this node
 func (manager *PeersManager) ConnectToNode(ip string, bootstrap_connection bool) error {
 	manager.PeersMutex.RLock()
 	_, already_peered_live := manager.LivePeers[ip]
 	_, already_peered_bootstrap := manager.BootstrapPeers[ip]
 	manager.PeersMutex.RUnlock()
 
-	if (bootstrap_connection && already_peered_bootstrap) || (!bootstrap_connection && already_peered_live) {
+	if bootstrap_connection && already_peered_bootstrap {
+		log.Println("Tried to peer with a node that we were already peered with:", ip, bootstrap_connection)
+		return nil
+	}
+
+	if !bootstrap_connection && already_peered_live {
 		log.Println("Tried to peer with a node that we were already peered with:", ip, bootstrap_connection)
 		return nil
 	}
@@ -126,7 +138,7 @@ func (manager *PeersManager) ConnectToNode(ip string, bootstrap_connection bool)
 	dialer := net.Dialer{Timeout: time.Second * 3}
 	conn, err := dialer.Dial("tcp", ip)
 	if err != nil {
-		manager.Logger.Println("Couldn't initiate connection with", ip, err)
+		manager.Logger.Println("Couldn't initiate connection with:", ip, err)
 		return err
 	}
 
@@ -135,7 +147,24 @@ func (manager *PeersManager) ConnectToNode(ip string, bootstrap_connection bool)
 	return nil
 }
 
+func (manager *PeersManager) ConnectToTrustedNodesIfNeeded() {
+	// Connect to configured trusted nodes if we don't have any saved peers in the database
+	saved_nodes, err := manager.GetSavedPeers()
+	if err != nil {
+		manager.Logger.Println("Error retrieving saved peers:", err)
+		return
+	}
+
+	if len(saved_nodes) == 0 {
+		for _, ip := range manager.P2PServer.Config.P2P.TrustedNodes {
+			manager.ConnectToNode(ip, false)
+		}
+	}
+}
+
 func (manager *PeersManager) Start() {
+	manager.ConnectToTrustedNodesIfNeeded()
+
 	go manager.MaintainPeersCount()
 }
 
@@ -202,7 +231,12 @@ func (manager *PeersManager) GetBootstrapPeersCount() uint {
 }
 
 func (manager *PeersManager) LogMessage(peer *networking.PeerNode, message string) {
-	f, err := os.OpenFile(peer.Alias+".log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	fileName := strings.ReplaceAll(peer.Conn.RemoteAddr().String(), ":", "_")
+	if peer.BootstrapConnection {
+		fileName += "_bootstrap"
+	}
+
+	f, err := os.OpenFile("./logs/"+fileName+".log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Println(err)
 		return
@@ -217,25 +251,22 @@ func (manager *PeersManager) LogMessage(peer *networking.PeerNode, message strin
 }
 
 func (manager *PeersManager) LogPacket(peer *networking.PeerNode, header packets.Header, data []byte, incoming bool) {
-	f, err := os.OpenFile(peer.Alias+".log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Println(err)
-		return
+	logText := fmt.Sprintf("%s %+v %s\n", header.MessageType.ToString(), header, hex.EncodeToString(data))
+
+	if header.MessageType == packets.PACKET_TYPE_CONFIRM_ACK && incoming {
+		logText = fmt.Sprintf("%s %+v %s\n", header.MessageType.ToString(), header, string(data))
 	}
 
-	defer f.Close()
-
-	var log_text string
 	if incoming {
-		log_text = fmt.Sprintf("[IN] %s %+v %s %s", header.MessageType.ToString(), header, hex.EncodeToString(header.Serialize()), hex.EncodeToString(data))
+		logText = "[IN] " + logText
 	} else {
-		log_text = fmt.Sprintf("[OUT] %s %+v %s %s", header.MessageType.ToString(), header, hex.EncodeToString(header.Serialize()), hex.EncodeToString(data))
+		logText = "[OUT] " + logText
 	}
 
-	log_text += "\n"
-	if _, err := f.WriteString(" | " + log_text); err != nil {
-		log.Println(err)
-	}
+	// prepend ts
+	logText = "[" + time.Now().Format("2006-01-02 15:04:05.000000") + "] " + logText
+
+	manager.LogMessage(peer, logText)
 }
 
 func (manager *PeersManager) GetPeersCount() (uint, uint) {

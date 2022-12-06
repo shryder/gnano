@@ -25,8 +25,18 @@ func (srv *P2P) HandleBulkPullResponse(reader packets.PacketReader, peer *networ
 			return err
 		}
 
-		srv.UncheckedBlocksManager.Add(block)
-		srv.BootstrapDataManager.FoundBlockBody(*block.Hash)
+		// log.Println("Received block with hash:", block.Hash.ToHexString())
+
+		ledgerBlock := srv.Database.Backend.GetBlock(block.Hash)
+		if ledgerBlock == nil {
+			// Block is unknown, add to unchecked table and request votes from live peers
+			srv.UncheckedBlocksManager.Add(block)
+			srv.BootstrapDataManager.FoundBlockBody(*block.Hash)
+			srv.Workers.ConfirmReq.RequestVotesOnTheseBlocks([][]byte{
+				append(block.Hash[:], block.Root()[:]...),
+			}, peer)
+		}
+
 		count++
 	}
 

@@ -9,6 +9,10 @@ import (
 
 type Hash [32]byte
 
+func (hash *Hash) FromSlice(b []byte) {
+	copy(hash[:], b)
+}
+
 func (hash *Hash) BigInt() *big.Int {
 	return new(big.Int).SetBytes((*hash)[:])
 }
@@ -17,12 +21,12 @@ func (hash *Hash) ToHexString() string {
 	return hex.EncodeToString((*hash)[:])
 }
 
-func (hash *Hash) MarshalJSON() ([]byte, error) {
-	return []byte(`"` + hash.ToHexString() + `"`), nil
-}
-
 func (hash *Hash) Cmp(other_hash *Hash) int {
 	return bytes.Compare(hash[:], other_hash[:])
+}
+
+func (hash Hash) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + hash.ToHexString() + `"`), nil
 }
 
 func (hash *Hash) UnmarshalJSON(data []byte) error {

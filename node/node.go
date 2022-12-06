@@ -6,6 +6,7 @@ import (
 	"github.com/Shryder/gnano/database"
 	"github.com/Shryder/gnano/p2p"
 	"github.com/Shryder/gnano/rpc"
+	"github.com/Shryder/gnano/types"
 )
 
 type Node struct {
@@ -16,10 +17,10 @@ type Node struct {
 	StopChannel chan bool
 }
 
-func New(cfg *Config) (*Node, error) {
+func New(cfg *Config, genesisBlock *types.Block) (*Node, error) {
 	node := Node{
 		http:     rpc.NewHTTPRPCServer(&cfg.HTTP),
-		p2p:      p2p.New(&cfg.Nano),
+		p2p:      p2p.New(&cfg.Nano, genesisBlock),
 		database: database.New(&cfg.Database),
 
 		StopChannel: make(chan bool),
@@ -29,12 +30,7 @@ func New(cfg *Config) (*Node, error) {
 }
 
 func (node *Node) Start() {
-	err := node.http.ValidateAndStart()
-	if err != nil {
-		log.Fatalln("Error starting HTTP server:", err)
-	}
-
-	err = node.database.ValidateAndStart()
+	err := node.database.ValidateAndStart()
 	if err != nil {
 		log.Fatal("Error initializing database:", err)
 	}
@@ -42,6 +38,11 @@ func (node *Node) Start() {
 	err = node.p2p.ValidateAndStart(*node.database)
 	if err != nil {
 		log.Fatalln("Error starting p2p server:", err)
+	}
+
+	err = node.http.ValidateAndStart(node.p2p)
+	if err != nil {
+		log.Fatalln("Error starting HTTP server:", err)
 	}
 
 	<-node.StopChannel

@@ -26,11 +26,11 @@ func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*networking.
 
 	header, err := srv.ReadHeader(reader)
 	if err != nil {
-		return nil, errors.New("Error reading packet header from peer: " + err.Error())
+		return nil, errors.New("error reading packet header from peer: " + err.Error())
 	}
 
 	if header.MessageType != 10 {
-		return nil, errors.New("Was expecting a node_id_handshake packet")
+		return nil, errors.New("was expecting a node_id_handshake packet")
 	}
 
 	data := make([]byte, 128)
@@ -45,7 +45,7 @@ func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*networking.
 
 	valid_signature := ed25519.Verify(ed25519.PublicKey(peer_account), cookie, peer_signature)
 	if !valid_signature {
-		return nil, errors.New("Received invalid handshake signature from peer")
+		return nil, errors.New("received invalid handshake signature from peer")
 	}
 
 	var node_id types.Address
@@ -61,6 +61,8 @@ func (srv *P2P) makeHandshake(conn net.Conn, reader *bufio.Reader) (*networking.
 	if err != nil {
 		return nil, err
 	}
+
+	srv.PeersManager.LogMessage(peer, "Handshake sent!")
 
 	return peer, nil
 }

@@ -32,21 +32,17 @@ type P2P struct {
 	NodeKeyPair        NodeKeyPair
 	NodeStartTimestamp uint64
 
-	Workers      WorkersManager
-	GenesisBlock types.Hash
+	Workers WorkersManager
+
+	GenesisBlock *types.Block
 }
 
-func New(cfg *Config) *P2P {
-	genesis_hash, err := types.StringToHash(string(cfg.GenesisBlock))
-	if err != nil {
-		panic(err)
-	}
-
+func New(cfg *Config, genesisBlock *types.Block) *P2P {
 	srv := &P2P{
 		Config:             cfg,
 		NodeStartTimestamp: uint64(time.Now().UnixMilli()),
 		VotingEnabled:      false,
-		GenesisBlock:       *genesis_hash,
+		GenesisBlock:       genesisBlock,
 	}
 
 	srv.Workers = NewWorkerManager(srv)
@@ -61,7 +57,7 @@ func (srv *P2P) ValidateIncomingConnection(conn net.Conn) error {
 	peer_count := srv.PeersManager.GetLivePeersCount()
 	if peer_count >= srv.Config.P2P.MaxLivePeers {
 		conn.Close()
-		return fmt.Errorf("Dropping connection with %s as we have reached the max limit of %d live peers", conn.RemoteAddr().String(), srv.Config.P2P.MaxLivePeers)
+		return fmt.Errorf("dropping connection with %s as we have reached the max limit of %d live peers", conn.RemoteAddr().String(), srv.Config.P2P.MaxLivePeers)
 	}
 
 	return nil
@@ -70,7 +66,9 @@ func (srv *P2P) ValidateIncomingConnection(conn net.Conn) error {
 func (srv *P2P) HandleMessage(reader packets.PacketReader, header packets.Header, peer *networking.PeerNode) error {
 	log.Println("Received message", header.MessageType.ToString(), "from", peer.Alias)
 
-	srv.PeersManager.LogPacket(peer, header, []byte{}, true)
+	if header.MessageType != packets.PACKET_TYPE_CONFIRM_ACK {
+		srv.PeersManager.LogPacket(peer, header, []byte{}, true)
+	}
 
 	switch header.MessageType {
 	case packets.PACKET_TYPE_KEEPALIVE:
@@ -136,10 +134,21 @@ func (srv *P2P) HandleRegularConnection(conn net.Conn, reader *bufio.Reader) {
 	srv.RegisterPeer(peer)
 	defer srv.UnregisterPeer(peer)
 
+	srv.PeersManager.LogMessage(peer, "=========== CONNECTION ESTABLISHED ===========")
+
+	// err = srv.SendConfirmAck(peer, []*packets.HashPair{{
+	// 	Hash: srv.GenesisBlock.Hash,
+	// 	Root: srv.GenesisBlock.Previous,
+	// }})
+	// if err != nil {
+	// 	log.Println("Error sending confirm ack to peer", peer.Alias)
+	// 	return
+	// }
+
 	for {
 		header, err := srv.ReadHeader(reader)
 		if err != nil {
-			srv.PeersManager.LogMessage(peer, fmt.Sprintf("Error reading header from peer: %s", srv.FormatConnReadError(err, peer)))
+			// srv.PeersManager.LogMessage(peer, fmt.Sprintf("Error reading header from peer: %s", srv.FormatConnReadError(err, peer)))
 			log.Println("Error reading header:", srv.FormatConnReadError(err, peer))
 
 			break
@@ -147,7 +156,7 @@ func (srv *P2P) HandleRegularConnection(conn net.Conn, reader *bufio.Reader) {
 
 		err = srv.HandleMessage(packets.PacketReader{Buffer: reader}, header, peer)
 		if err != nil {
-			srv.PeersManager.LogMessage(peer, fmt.Sprintf("Disconnecting. Error handling message from peer: %+v", err))
+			// srv.PeersManager.LogMessage(peer, fmt.Sprintf("Disconnecting. Error handling message from peer: %+v", err))
 			log.Println("Disconnecting. Error handling message from peer", peer.NodeID.ToNodeAddress(), remoteIP, ":", err)
 
 			break
@@ -200,10 +209,6 @@ func (srv *P2P) Start() {
 	srv.PeersManager.Start()
 	srv.UncheckedBlocksManager.Start()
 
-	// for _, ip := range srv.Config.P2P.TrustedNodes {
-	// 	srv.PeersManager.ConnectToNode(ip, false)
-	// }
-
 	srv.StartListening()
 }
 
@@ -224,13 +229,8 @@ func (srv *P2P) LoadOrCreateNodeIdentity() error {
 func (srv *P2P) ValidateAndStart(database database.Database) error {
 	srv.Database = database
 
-	// Example validation
-	if srv.Config.P2P.MaxLivePeers == 0 {
-		return errors.New("MaxLivePeers cannot be 0")
-	}
-
 	if len(srv.Config.NetworkId) != 2 {
-		return errors.New("NetworkId must be 2 bytes.")
+		return errors.New("NetworkId must be 2 bytes")
 	}
 
 	err := srv.LoadOrCreateNodeIdentity()
@@ -239,6 +239,20 @@ func (srv *P2P) ValidateAndStart(database database.Database) error {
 	}
 
 	log.Println("Public Key:", hex.EncodeToString(srv.NodeKeyPair.PublicKey))
+
+	// Store genesis block in the ledger if it wasn't stored already.
+	ledgerGenesisBlock := database.Backend.GetBlock(srv.GenesisBlock.Hash)
+	if ledgerGenesisBlock == nil {
+		if database.Backend.GetBlockCount() != 0 {
+			return errors.New("genesis block not found locally yet the ledger had more than 1 block in it")
+		}
+
+		err := database.Backend.PutBlock(srv.GenesisBlock)
+		if err != nil {
+			return errors.New("error storing genesis block in ledger")
+		}
+	}
+
 	log.Println("Starting p2p server")
 
 	go srv.Start()

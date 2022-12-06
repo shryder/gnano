@@ -15,8 +15,8 @@ import (
 )
 
 type DBAccount struct {
-	Frontier types.Hash     `json:"hash"`
-	Sideband types.Sideband `json:"sideband"`
+	Frontier *types.Hash     `json:"frontier"`
+	Sideband *types.Sideband `json:"sideband"`
 }
 
 type DBSchema struct {

@@ -4,6 +4,7 @@ import (
 	"encoding/base32"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/shryder/ed25519-blake2b"
@@ -77,7 +78,7 @@ func (address *Address) UnmarshalJSON(data []byte) error {
 
 func DecodeNanoAddress(nano_address string) (addy *Address, err error) {
 	if nano_address[:5] != "nano_" {
-		return nil, errors.New("Invalid address format")
+		return nil, fmt.Errorf("invalid address format %s", nano_address)
 	}
 
 	// A valid nano address is 64 bytes long
@@ -89,7 +90,7 @@ func DecodeNanoAddress(nano_address string) (addy *Address, err error) {
 	// Remove nano_ prefix
 	nano_address = nano_address[5:]
 	if len(nano_address) != 60 {
-		return nil, errors.New("Invalid address size")
+		return nil, fmt.Errorf("invalid address size %d", len(nano_address))
 	}
 
 	// The nano address string is 260bits which doesn't fall on a
@@ -109,12 +110,12 @@ func DecodeNanoAddress(nano_address string) (addy *Address, err error) {
 	// nano checksum is calculated by hashing the key and reversing the bytes
 	address_checksum, err := checksum(key_bytes)
 	if err != nil {
-		return nil, errors.New("Couldn't create checksum")
+		return nil, fmt.Errorf("couldn't create checksum %s", nano_address)
 	}
 
 	valid := NanoEncoding.EncodeToString(address_checksum) == input_checksum
 	if !valid {
-		return nil, errors.New("Invalid address checksum")
+		return nil, fmt.Errorf("invalid address checksum %s", nano_address)
 	}
 
 	addy = new(Address)

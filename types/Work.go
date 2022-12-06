@@ -21,3 +21,19 @@ func (work Work) UnmarshalJSON(work_hex []byte) error {
 
 	return nil
 }
+
+func (work *Work) ToHexString() string {
+	return hex.EncodeToString(work[:])
+}
+
+func WorkFromString(work_str string) (*Work, error) {
+	work_slice, err := hex.DecodeString(work_str)
+	if err != nil {
+		return nil, err
+	}
+
+	work := new(Work)
+	copy(work[:], work_slice)
+
+	return work, nil
+}

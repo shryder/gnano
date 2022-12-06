@@ -1,0 +1,11 @@
+{
+	"type": "open",
+	"hash": "b1d60c0b886b57401ef5a1daa04340e53726aa6f4d706c085706f31bbd100cee",
+	"previous": "0000000000000000000000000000000000000000000000000000000000000000",
+	"account": "nano_1jg8zygjg3pp5w644emqcbmjqpnzmubfni3kfe1s8pooeuxsw49fdq1mco9j",
+	"representative": "nano_1jg8zygjg3pp5w644emqcbmjqpnzmubfni3kfe1s8pooeuxsw49fdq1mco9j",
+	"balance": "340282366920938463463374607431768211455",
+	"link": "45c6ff9d1706d61f0821327752671bda9f9ed2da40326b01935ab566fb9e08ed",
+	"signature": "15049467caee3ec768639e8e35792399b6078da763da4eba8ecad33b0edc4af2e7403893a5a602eb89b978dabef1d6606bb00f3c0ee11449232b143b6e07170e",
+	"work": "b14ea3c179f21ebc"
+}
